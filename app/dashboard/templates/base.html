@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Wolf15 SignalThrottle Dashboard</title>
+  <link rel="stylesheet" href="/static/app.css" />
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>Wolf15 SignalThrottle</h1>
+      <p>Pressure intelligence dashboard</p>
+    </div>
+    <nav>
+      <a href="/">Dashboard</a>
+      <a href="/health">Health</a>
+      <a href="/docs">API Docs</a>
+    </nav>
+  </header>
+
+  <main class="container">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="footer">
+    <p>wolf15-signalthrottle-service v0.1.0</p>
+  </footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="panel">
+  <h2>Signal Detail</h2>
+  {% if signal %}
+  <div class="detail-grid">
+    <div class="detail-item">
+      <span class="label">Symbol</span>
+      <strong>{{ signal.symbol }}</strong>
+    </div>
+    <div class="detail-item">
+      <span class="label">Pressure Grade</span>
+      <span class="badge badge-lg">{{ signal.pressure_grade }}</span>
+    </div>
+    <div class="detail-item">
+      <span class="label">Execution Grade</span>
+      <span class="badge badge-lg">{{ signal.execution_grade }}</span>
+    </div>
+    <div class="detail-item">
+      <span class="label">Action</span>
+      <strong>{{ signal.action }}</strong>
+    </div>
+    <div class="detail-item">
+      <span class="label">Duration</span>
+      <strong>{{ signal.duration_minutes }} min</strong>
+    </div>
+    <div class="detail-item">
+      <span class="label">Events</span>
+      <strong>{{ signal.event_count }}</strong>
+    </div>
+    <div class="detail-item">
+      <span class="label">Density/min</span>
+      <strong>{{ signal.density_per_minute }}</strong>
+    </div>
+    <div class="detail-item">
+      <span class="label">Max Gap</span>
+      <strong>{{ signal.max_gap_seconds or '-' }}s</strong>
+    </div>
+  </div>
+
+  <h3>Trade Plan JSON</h3>
+  <pre class="json-view">{{ signal.payload | tojson(indent=2) if signal.payload else '{}' }}</pre>
+
+  <p><a href="/">&larr; Back to dashboard</a></p>
+  {% else %}
+  <p class="empty">Signal not found</p>
+  <p><a href="/">&larr; Back to dashboard</a></p>
+  {% endif %}
+</section>
+{% endblock %}

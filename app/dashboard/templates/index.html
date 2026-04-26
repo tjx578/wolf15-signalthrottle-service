@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="grid">
+  <div class="card">
+    <span class="label">Active Blocks</span>
+    <strong>{{ stats.active_blocks }}</strong>
+  </div>
+  <div class="card">
+    <span class="label">A/A+ Signals (24h)</span>
+    <strong>{{ stats.priority_signals }}</strong>
+  </div>
+  <div class="card">
+    <span class="label">Avg Density (24h)</span>
+    <strong>{{ stats.avg_density }}</strong>
+  </div>
+  <div class="card">
+    <span class="label">Last Update</span>
+    <strong>{{ stats.last_update }}</strong>
+  </div>
+</section>
+
+<section class="panel">
+  <h2>Active Pressure</h2>
+  {% if active_blocks %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Symbol</th>
+          <th>Duration (m)</th>
+          <th>Events</th>
+          <th>Density/m</th>
+          <th>Max Gap (s)</th>
+          <th>Grade</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for b in active_blocks %}
+        <tr>
+          <td class="symbol">{{ b.symbol }}</td>
+          <td>{{ b.duration_minutes }}</td>
+          <td>{{ b.event_count }}</td>
+          <td>{{ b.density_per_minute }}</td>
+          <td>{{ b.max_gap_seconds or '-' }}</td>
+          <td><span class="badge badge-{{ b.pressure_grade | lower | replace('+','p') }}">{{ b.pressure_grade }}</span></td>
+          <td>{{ b.finalize_mode or 'ACTIVE' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No active pressure blocks</p>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <h2>Latest Trade Plans</h2>
+  {% if latest_signals %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Symbol</th>
+          <th>Pressure</th>
+          <th>Exec</th>
+          <th>Action</th>
+          <th>End WITA</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in latest_signals %}
+        <tr>
+          <td class="symbol"><a href="/signals/{{ s.id }}">{{ s.symbol }}</a></td>
+          <td><span class="badge">{{ s.pressure_grade }}</span></td>
+          <td><span class="badge">{{ s.execution_grade }}</span></td>
+          <td>{{ s.action }}</td>
+          <td>{{ s.signal_end_wita or '-' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No trade plans yet</p>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <h2>Replay Logs</h2>
+  <form id="replay-form">
+    <textarea id="replay-logs" rows="6" placeholder="Paste raw SignalThrottle logs here..."></textarea>
+    <button type="submit" class="btn">Process Logs</button>
+  </form>
+  <div id="replay-result"></div>
+</section>
+{% endblock %}
