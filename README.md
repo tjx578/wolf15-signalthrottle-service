@@ -111,7 +111,7 @@ Arah trade tetap ditentukan oleh:
 Service ini memisahkan dua hal:
 
 | Grade | Fungsi |
-|---|---|
+| --- | --- |
 | `pressure_grade` | kualitas logs |
 | `execution_grade` | kualitas eksekusi setelah chart dibaca |
 
@@ -494,6 +494,11 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
+Database note:
+
+- This service targets PostgreSQL. The schema in `app/storage/schema.sql` uses PostgreSQL-specific types and DDL such as `BIGSERIAL`, `TIMESTAMPTZ`, `JSONB`, and `CREATE TABLE IF NOT EXISTS`.
+- If you open the repo in VS Code with the MSSQL extension installed, workspace settings in `.vscode/settings.json` auto-disable the T-SQL language service for non-MSSQL files to avoid false syntax errors on the Postgres schema.
+
 Edit `.env`:
 
 ```env
@@ -597,7 +602,7 @@ SERVICE_NAME = "wolf15-signalthrottle-service"
 ## Environment Variables
 
 | Variable | Required | Default | Purpose |
-|---|---:|---|---|
+| --- | ---: | --- | --- |
 | `APP_ENV` | no | `production` | App environment |
 | `SERVICE_NAME` | no | `wolf15-signalthrottle-service` | Service name |
 | `DATABASE_URL` | yes | - | PostgreSQL connection |
@@ -986,4 +991,4 @@ Phase 2 — Market Context
 
 ## Maintainer
 
-**KELANA TJX / Wolf15 System**
+KELANA TJX / Wolf15 System
