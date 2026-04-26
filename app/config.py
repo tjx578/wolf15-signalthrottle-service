@@ -8,13 +8,16 @@ class Settings(BaseSettings):
     service_name: str = "wolf15-signalthrottle-service"
 
     database_url: str = ""
+    db_schema: str = "signalthrottle"
 
     log_timezone: str = "UTC"
     owner_timezone: str = "Asia/Makassar"
     chart_time_offset_hours: int = 3
 
-    finnhub_api_key: str | None = None
+    enable_market_context: bool = True
+
     ohlc_provider: str = "finnhub"
+    finnhub_api_key: str | None = None
 
     webhook_secret: str | None = None
 

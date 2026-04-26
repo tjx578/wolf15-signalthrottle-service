@@ -2,20 +2,21 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import datetime
 
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from app.config import settings
-from app.detector.block_detector import split_blocks
-from app.detector.sequence_builder import group_by_symbol
-from app.models.log_event import LogEvent
-from app.parser.signalthrottle_parser import parse_signalthrottle
-from app.parser.timestamp_mapper import to_chart_time, to_wita
-from app.scoring.pressure_grader import grade_pressure
-from app.scoring.pressure_metrics import calculate_pressure_metrics
-from app.storage.repositories import SignalRepository
+from ..config import settings
+from ..detector.block_detector import split_blocks
+from ..detector.sequence_builder import group_by_symbol
+from ..models.log_event import LogEvent
+from ..parser.signalthrottle_parser import parse_signalthrottle
+from ..parser.timestamp_mapper import to_chart_time, to_wita
+from ..planner.market_context import enrich_block_with_market_context
+from ..scoring.pressure_grader import grade_pressure
+from ..scoring.pressure_metrics import calculate_pressure_metrics
+from ..storage.repositories import SignalRepository
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -94,6 +95,7 @@ async def replay_logs(payload: ReplayPayload):
     # Detect blocks per symbol
     groups = group_by_symbol(events)
     block_results = []
+    trade_plan_count = 0
 
     for symbol, sym_events in groups.items():
         blocks = split_blocks(sym_events, settings.max_event_gap_seconds)
@@ -131,6 +133,36 @@ async def replay_logs(payload: ReplayPayload):
                 finalize_mode="REPLAY_FINALIZE",
             )
 
+            block = {
+                "id": block_data["id"],
+                "symbol": symbol,
+                "start_utc": start,
+                "end_utc": end,
+                "start_wita": to_wita(start),
+                "end_wita": to_wita(end),
+                "chart_start_time": to_chart_time(
+                    start, settings.chart_time_offset_hours
+                ),
+                "chart_end_time": to_chart_time(
+                    end, settings.chart_time_offset_hours
+                ),
+                "duration_minutes": metrics["duration_minutes"],
+                "event_count": metrics["event_count"],
+                "density_per_minute": metrics["density_per_minute"],
+                "avg_gap_seconds": metrics["avg_gap_seconds"],
+                "max_gap_seconds": metrics["max_gap_seconds"],
+                "pressure_grade": grade,
+                "pressure_status": "REPLAY",
+                "block_relation": None,
+                "finalize_mode": "REPLAY_FINALIZE",
+            }
+
+            trade_plan = await enrich_block_with_market_context(block, repo)
+            if trade_plan:
+                trade_plan_count += 1
+
+            await repo.finalize_block(block_data["id"], "REPLAY_FINALIZE")
+
             block_results.append(
                 {
                     "symbol": symbol,
@@ -139,6 +171,7 @@ async def replay_logs(payload: ReplayPayload):
                     "duration_minutes": metrics["duration_minutes"],
                     "density_per_minute": metrics["density_per_minute"],
                     "pressure_grade": grade,
+                    "trade_plan_created": trade_plan is not None,
                 }
             )
 
@@ -148,5 +181,6 @@ async def replay_logs(payload: ReplayPayload):
         "events_stored": stored,
         "duplicates_skipped": duplicates,
         "blocks_detected": len(block_results),
+        "trade_plans_created": trade_plan_count,
         "blocks": block_results,
     }

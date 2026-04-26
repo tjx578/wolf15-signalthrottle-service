@@ -1,6 +1,8 @@
 -- Wolf15 SignalThrottle Service — Database Schema
 
-CREATE TABLE IF NOT EXISTS signal_events (
+CREATE SCHEMA IF NOT EXISTS signalthrottle;
+
+CREATE TABLE IF NOT EXISTS signalthrottle.signal_events (
     id BIGSERIAL PRIMARY KEY,
     symbol TEXT NOT NULL,
     event_type TEXT NOT NULL DEFAULT 'SIGNAL_THROTTLE',
@@ -15,14 +17,14 @@ CREATE TABLE IF NOT EXISTS signal_events (
 );
 
 CREATE INDEX IF NOT EXISTS idx_signal_events_symbol_time
-ON signal_events(symbol, timestamp_utc);
+ON signalthrottle.signal_events(symbol, timestamp_utc);
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_signal_events_event_hash
-ON signal_events(event_hash);
+ON signalthrottle.signal_events(event_hash);
 
 -- -------------------------------------------------------
 
-CREATE TABLE IF NOT EXISTS pressure_blocks (
+CREATE TABLE IF NOT EXISTS signalthrottle.pressure_blocks (
     id BIGSERIAL PRIMARY KEY,
     symbol TEXT NOT NULL,
 
@@ -50,17 +52,20 @@ CREATE TABLE IF NOT EXISTS pressure_blocks (
 );
 
 CREATE INDEX IF NOT EXISTS idx_pressure_blocks_symbol_time
-ON pressure_blocks(symbol, end_utc DESC);
+ON signalthrottle.pressure_blocks(symbol, end_utc DESC);
 
 CREATE INDEX IF NOT EXISTS idx_pressure_blocks_active
-ON pressure_blocks(is_active) WHERE is_active = TRUE;
+ON signalthrottle.pressure_blocks(is_active) WHERE is_active = TRUE;
 
 -- -------------------------------------------------------
 
-CREATE TABLE IF NOT EXISTS market_snapshots (
+CREATE TABLE IF NOT EXISTS signalthrottle.market_snapshots (
     id BIGSERIAL PRIMARY KEY,
-    block_id BIGINT REFERENCES pressure_blocks(id) ON DELETE CASCADE,
+    block_id BIGINT REFERENCES signalthrottle.pressure_blocks(id) ON DELETE CASCADE,
     symbol TEXT NOT NULL,
+
+    signal_start_utc TIMESTAMPTZ,
+    signal_end_utc TIMESTAMPTZ,
 
     price_at_start NUMERIC,
     price_at_end NUMERIC,
@@ -81,11 +86,14 @@ CREATE TABLE IF NOT EXISTS market_snapshots (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE INDEX IF NOT EXISTS idx_st_market_snapshots_symbol_time
+ON signalthrottle.market_snapshots(symbol, created_at DESC);
+
 -- -------------------------------------------------------
 
-CREATE TABLE IF NOT EXISTS trade_plans (
+CREATE TABLE IF NOT EXISTS signalthrottle.trade_plans (
     id BIGSERIAL PRIMARY KEY,
-    block_id BIGINT REFERENCES pressure_blocks(id) ON DELETE CASCADE,
+    block_id BIGINT REFERENCES signalthrottle.pressure_blocks(id) ON DELETE CASCADE,
     symbol TEXT NOT NULL,
 
     pressure_grade TEXT NOT NULL,
@@ -106,11 +114,17 @@ CREATE TABLE IF NOT EXISTS trade_plans (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE INDEX IF NOT EXISTS idx_st_trade_plans_symbol_time
+ON signalthrottle.trade_plans(symbol, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_st_trade_plans_grade_time
+ON signalthrottle.trade_plans(execution_grade, created_at DESC);
+
 -- -------------------------------------------------------
 
-CREATE TABLE IF NOT EXISTS signal_outcomes (
+CREATE TABLE IF NOT EXISTS signalthrottle.signal_outcomes (
     id BIGSERIAL PRIMARY KEY,
-    trade_plan_id BIGINT REFERENCES trade_plans(id) ON DELETE CASCADE,
+    trade_plan_id BIGINT REFERENCES signalthrottle.trade_plans(id) ON DELETE CASCADE,
 
     price_after_15m NUMERIC,
     price_after_30m NUMERIC,

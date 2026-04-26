@@ -10,6 +10,9 @@ class MarketSnapshot(BaseModel):
     block_id: int | None = None
     symbol: str
 
+    signal_start_utc: datetime | None = None
+    signal_end_utc: datetime | None = None
+
     price_at_start: float | None = None
     price_at_end: float | None = None
     spread_points: float | None = None

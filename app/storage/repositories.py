@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
 
 from app.storage.postgres import get_cursor
@@ -60,6 +60,7 @@ class SignalRepository:
                 ),
             )
             row = await cur.fetchone()
+            assert row is not None
             return {"id": row["id"], "duplicate": False}
 
     # ----- pressure_blocks -----
@@ -120,6 +121,7 @@ class SignalRepository:
                     ),
                 )
                 row = await cur.fetchone()
+                assert row is not None
                 return {"id": row["id"], "action": "updated"}
             else:
                 await cur.execute(
@@ -144,6 +146,7 @@ class SignalRepository:
                     ),
                 )
                 row = await cur.fetchone()
+                assert row is not None
                 return {"id": row["id"], "action": "created"}
 
     async def finalize_block(self, block_id: int, finalize_mode: str) -> None:
@@ -205,7 +208,7 @@ class SignalRepository:
 
     # ----- trade_plans -----
 
-    async def insert_trade_plan(self, plan: dict) -> dict:
+    async def insert_trade_plan(self, block_id: int, plan: dict) -> int:
         async with get_cursor() as cur:
             await cur.execute(
                 """
@@ -218,7 +221,7 @@ class SignalRepository:
                 RETURNING id
                 """,
                 (
-                    plan.get("block_id"),
+                    block_id,
                     plan["symbol"],
                     plan["pressure_grade"],
                     plan["execution_grade"],
@@ -236,7 +239,8 @@ class SignalRepository:
                 ),
             )
             row = await cur.fetchone()
-            return {"id": row["id"]}
+            assert row is not None
+            return row["id"]
 
     async def get_latest_trade_plans(self, limit: int = 20) -> list[dict]:
         async with get_cursor() as cur:
@@ -270,6 +274,19 @@ class SignalRepository:
             )
             return await cur.fetchone()
 
+    async def get_trade_plan_for_block(self, block_id: int) -> dict | None:
+        async with get_cursor() as cur:
+            await cur.execute(
+                """
+                SELECT * FROM trade_plans
+                WHERE block_id = %s
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (block_id,),
+            )
+            return await cur.fetchone()
+
     # ----- dashboard stats -----
 
     async def get_dashboard_stats(self) -> dict:
@@ -277,7 +294,8 @@ class SignalRepository:
             await cur.execute(
                 "SELECT COUNT(*) AS cnt FROM pressure_blocks WHERE is_active = TRUE"
             )
-            active = (await cur.fetchone())["cnt"]
+            active_row = await cur.fetchone()
+            active = active_row["cnt"] if active_row else 0
 
             await cur.execute(
                 """
@@ -286,7 +304,8 @@ class SignalRepository:
                   AND created_at > NOW() - INTERVAL '24 hours'
                 """
             )
-            priority = (await cur.fetchone())["cnt"]
+            priority_row = await cur.fetchone()
+            priority = priority_row["cnt"] if priority_row else 0
 
             await cur.execute(
                 """
@@ -295,7 +314,8 @@ class SignalRepository:
                 WHERE created_at > NOW() - INTERVAL '24 hours'
                 """
             )
-            avg_density = str((await cur.fetchone())["avg_d"])
+            avg_row = await cur.fetchone()
+            avg_density = str(avg_row["avg_d"]) if avg_row else "0"
 
             await cur.execute(
                 """
@@ -303,7 +323,7 @@ class SignalRepository:
                 """
             )
             row = await cur.fetchone()
-            last = row["last_update"]
+            last = row["last_update"] if row else None
             last_str = last.strftime("%Y-%m-%d %H:%M UTC") if last else "-"
 
             return {
@@ -315,37 +335,42 @@ class SignalRepository:
 
     # ----- market_snapshots -----
 
-    async def insert_market_snapshot(self, snap: dict) -> dict:
+    async def insert_market_snapshot(self, snapshot: dict) -> int:
         async with get_cursor() as cur:
             await cur.execute(
                 """
                 INSERT INTO market_snapshots
-                    (block_id, symbol, price_at_start, price_at_end,
+                    (block_id, symbol, signal_start_utc, signal_end_utc,
+                     price_at_start, price_at_end, spread_points,
                      d1_bias, h4_structure, h1_phase, m15_phase,
                      chart_bias, chart_phase,
                      support_zone, resistance_zone, key_level, raw_ohlc)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
                 RETURNING id
                 """,
                 (
-                    snap.get("block_id"),
-                    snap["symbol"],
-                    snap.get("price_at_start"),
-                    snap.get("price_at_end"),
-                    snap.get("d1_bias"),
-                    snap.get("h4_structure"),
-                    snap.get("h1_phase"),
-                    snap.get("m15_phase"),
-                    snap.get("chart_bias"),
-                    snap.get("chart_phase"),
-                    snap.get("support_zone"),
-                    snap.get("resistance_zone"),
-                    snap.get("key_level"),
-                    _json_or_none(snap.get("raw_ohlc")),
+                    snapshot.get("block_id"),
+                    snapshot["symbol"],
+                    snapshot.get("signal_start_utc"),
+                    snapshot.get("signal_end_utc"),
+                    snapshot.get("price_at_start"),
+                    snapshot.get("price_at_end"),
+                    snapshot.get("spread_points"),
+                    snapshot.get("d1_bias"),
+                    snapshot.get("h4_structure"),
+                    snapshot.get("h1_phase"),
+                    snapshot.get("m15_phase"),
+                    snapshot.get("chart_bias"),
+                    snapshot.get("chart_phase"),
+                    snapshot.get("support_zone"),
+                    snapshot.get("resistance_zone"),
+                    snapshot.get("key_level"),
+                    _json_or_none(snapshot.get("raw_ohlc")),
                 ),
             )
             row = await cur.fetchone()
-            return {"id": row["id"]}
+            assert row is not None
+            return row["id"]
 
 
 def _json_or_none(obj: Any) -> str | None:

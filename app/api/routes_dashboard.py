@@ -42,7 +42,7 @@ async def dashboard_home(request: Request):
     )
 
 
-@router.get("/signals/{signal_id}", response_class=HTMLResponse)
+@router.get("/signal-detail/{signal_id}", response_class=HTMLResponse)
 async def signal_detail_page(request: Request, signal_id: int):
     repo = SignalRepository()
     signal = await repo.get_trade_plan(signal_id)

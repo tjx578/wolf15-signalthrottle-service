@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 
 from app.storage.repositories import SignalRepository
 
@@ -17,7 +17,12 @@ async def latest_signals(limit: int = 20):
 @router.get("/{signal_id}")
 async def signal_detail(signal_id: int):
     repo = SignalRepository()
-    plan = await repo.get_trade_plan(signal_id)
-    if not plan:
-        raise HTTPException(status_code=404, detail="signal not found")
-    return plan
+    signal = await repo.get_trade_plan(signal_id)
+
+    if not signal:
+        return {
+            "status": "not_found",
+            "signal_id": signal_id,
+        }
+
+    return signal

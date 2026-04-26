@@ -1,85 +1,78 @@
 from __future__ import annotations
 
-import logging
+from datetime import datetime
+from typing import Any
 
-from app.config import settings
 from app.market.finnhub_client import FinnhubClient
 from app.market.level_detector import detect_levels
-from app.market.ohlc_cache import ohlc_cache
 from app.market.phase_classifier import classify_phase
 
-logger = logging.getLogger(__name__)
+
+def find_candle_at_or_before(
+    candles: list[dict[str, Any]],
+    ts: datetime,
+) -> dict[str, Any] | None:
+    valid = [candle for candle in candles if candle["timestamp"] <= ts]
+    if not valid:
+        return None
+
+    return sorted(valid, key=lambda candle: candle["timestamp"])[-1]
 
 
-async def build_market_snapshot(symbol: str) -> dict:
-    """Fetch OHLC, detect levels, classify phase, return snapshot dict."""
+class MarketSnapshotBuilder:
+    def __init__(self, ohlc_client: FinnhubClient) -> None:
+        self.ohlc_client = ohlc_client
 
-    if not settings.finnhub_api_key:
-        return _empty_snapshot(symbol)
+    async def build(self, block: dict[str, Any]) -> dict[str, Any]:
+        symbol = block["symbol"]
+        start_utc = block["start_utc"]
+        end_utc = block["end_utc"]
 
-    client = FinnhubClient(api_key=settings.finnhub_api_key)
+        m15 = await self.ohlc_client.fetch(symbol, "M15", bars=250, end_time_utc=end_utc)
+        h1 = await self.ohlc_client.fetch(symbol, "H1", bars=200, end_time_utc=end_utc)
+        h4 = await self.ohlc_client.fetch(symbol, "H4", bars=120, end_time_utc=end_utc)
+        d1 = await self.ohlc_client.fetch(symbol, "D1", bars=120, end_time_utc=end_utc)
 
-    # Fetch with cache
-    m15 = ohlc_cache.get(symbol, "M15")
-    if m15 is None:
-        try:
-            m15 = await client.fetch(symbol, "M15", bars=50)
-            ohlc_cache.put(symbol, "M15", m15)
-        except Exception as exc:
-            logger.warning("M15 fetch failed for %s: %s", symbol, exc)
-            m15 = []
+        m15_end = find_candle_at_or_before(m15, end_utc)
+        m15_start = find_candle_at_or_before(m15, start_utc)
 
-    h1 = ohlc_cache.get(symbol, "H1")
-    if h1 is None:
-        try:
-            h1 = await client.fetch(symbol, "H1", bars=50)
-            ohlc_cache.put(symbol, "H1", h1)
-        except Exception as exc:
-            logger.warning("H1 fetch failed for %s: %s", symbol, exc)
-            h1 = []
+        price_at_end = float(m15_end["close"]) if m15_end else None
+        price_at_start = float(m15_start["close"]) if m15_start else None
 
-    # Detect levels from H1
-    levels = detect_levels(h1, lookback=20)
-    last_price = m15[-1]["close"] if m15 else (h1[-1]["close"] if h1 else None)
+        level_context = detect_levels(
+            symbol=symbol,
+            price=price_at_end,
+            d1=d1,
+            h4=h4,
+            h1=h1,
+            m15=m15,
+        )
 
-    # Build snapshot for phase classifier
-    snapshot_input = {
-        "price": last_price,
-        "near_resistance": levels.get("near_resistance", False),
-        "near_support": levels.get("near_support", False),
-        "pivot_reclaim": False,  # TODO: detect from structure
-        "pullback_active": False,  # TODO: detect from structure
-        "m15_rejection": False,  # TODO: detect from M15 patterns
-    }
+        phase = classify_phase(
+            {
+                "symbol": symbol,
+                "price": price_at_end,
+                "d1": d1,
+                "h4": h4,
+                "h1": h1,
+                "m15": m15,
+                **level_context,
+            }
+        )
 
-    phase = classify_phase(snapshot_input)
-
-    return {
-        "symbol": symbol,
-        "price_at_end": last_price,
-        "support_zone": str(levels.get("support")) if levels.get("support") else None,
-        "resistance_zone": str(levels.get("resistance")) if levels.get("resistance") else None,
-        "chart_bias": phase["chart_bias"],
-        "chart_phase": phase["chart_phase"],
-        "action": phase["action"],
-        "near_support": levels.get("near_support", False),
-        "near_resistance": levels.get("near_resistance", False),
-        "m15_bars": len(m15),
-        "h1_bars": len(h1),
-    }
-
-
-def _empty_snapshot(symbol: str) -> dict:
-    return {
-        "symbol": symbol,
-        "price_at_end": None,
-        "support_zone": None,
-        "resistance_zone": None,
-        "chart_bias": "UNCLASSIFIED",
-        "chart_phase": "NO_DATA",
-        "action": "NO_TRADE_WAIT_CONTEXT",
-        "near_support": False,
-        "near_resistance": False,
-        "m15_bars": 0,
-        "h1_bars": 0,
-    }
+        return {
+            "symbol": symbol,
+            "block_id": block.get("id"),
+            "signal_start_utc": start_utc,
+            "signal_end_utc": end_utc,
+            "price_at_start": price_at_start,
+            "price_at_end": price_at_end,
+            **level_context,
+            **phase,
+            "raw_ohlc": {
+                "D1": d1[-50:],
+                "H4": h4[-80:],
+                "H1": h1[-100:],
+                "M15": m15[-120:],
+            },
+        }

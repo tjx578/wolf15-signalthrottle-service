@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import asyncio
+import sys
+
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
@@ -11,6 +14,10 @@ from app.api.routes_replay import router as replay_router
 from app.api.routes_signals import router as signals_router
 from app.api.routes_webhook import router as webhook_router
 from app.lifecycle import lifespan
+
+
+if sys.platform.startswith("win"):
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 
 def create_app() -> FastAPI:

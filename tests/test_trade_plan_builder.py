@@ -19,14 +19,16 @@ def test_build_plan_a_grade():
         "block_relation": "FIRST_BLOCK",
         "finalize_mode": "SOFT_FINALIZE",
     }
-    snapshot = {"price_at_end": 143.50, "entry_zone": "143.40-143.55"}
-    phase = {
+    snapshot = {
+        "price_at_end": 143.50,
+        "entry_zone": "143.400-143.550",
         "chart_bias": "BULLISH_MACRO_RANGE",
         "chart_phase": "PIVOT_RECLAIM_CONTINUATION",
         "action": "BUY_ON_RETEST_OR_RECLAIM_HOLD",
+        "tp1": "143.700",
     }
 
-    result = build_trade_plan(block, snapshot, phase)
+    result = build_trade_plan(block, snapshot)
 
     assert result["symbol"] == "USDJPY"
     assert result["pressure_grade"] == "A"
@@ -45,14 +47,13 @@ def test_build_plan_c_grade():
         "event_count": 5,
         "density_per_minute": 1.5,
     }
-    snapshot = {}
-    phase = {
+    snapshot = {
         "chart_bias": "UNCLASSIFIED",
         "chart_phase": "RANGE_MID_NO_EDGE",
         "action": "NO_TRADE_WAIT_CONTEXT",
     }
 
-    result = build_trade_plan(block, snapshot, phase)
+    result = build_trade_plan(block, snapshot)
 
-    assert result["execution_grade"] == "B"
-    assert result["execution_side"] == "WAIT"
+    assert result["execution_grade"] == "C"
+    assert result["execution_side"] == "NO_TRADE"

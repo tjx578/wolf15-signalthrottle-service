@@ -66,17 +66,23 @@
           <th>Symbol</th>
           <th>Pressure</th>
           <th>Exec</th>
+          <th>Phase</th>
           <th>Action</th>
+          <th>Zone</th>
+          <th>Invalid</th>
           <th>End WITA</th>
         </tr>
       </thead>
       <tbody>
         {% for s in latest_signals %}
         <tr>
-          <td class="symbol"><a href="/signals/{{ s.id }}">{{ s.symbol }}</a></td>
+          <td class="symbol"><a href="/signal-detail/{{ s.id }}">{{ s.symbol }}</a></td>
           <td><span class="badge">{{ s.pressure_grade }}</span></td>
           <td><span class="badge">{{ s.execution_grade }}</span></td>
+          <td>{{ s.chart_phase }}</td>
           <td>{{ s.action }}</td>
+          <td>{{ s.entry_zone or '-' }}</td>
+          <td>{{ s.invalidation or '-' }}</td>
           <td>{{ s.signal_end_wita or '-' }}</td>
         </tr>
         {% endfor %}
