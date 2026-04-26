@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import logging
 
+from psycopg import sql
+
 from app.config import settings
 from app.storage.postgres import get_cursor
 
@@ -22,22 +24,17 @@ async def run_migrations() -> None:
 
 async def _migration_001_add_event_hash_if_missing() -> None:
     async with get_cursor() as cur:
+        signal_events = sql.Identifier(settings.db_schema, "signal_events")
+        index_name = sql.Identifier("idx_signal_events_event_hash")
+
         await cur.execute(
-            """
-            DO $$
-            BEGIN
-                IF NOT EXISTS (
-                    SELECT 1 FROM information_schema.columns
-                    WHERE table_schema = %s
-                      AND table_name = 'signal_events'
-                      AND column_name = 'event_hash'
-                ) THEN
-                    ALTER TABLE signal_events ADD COLUMN event_hash TEXT;
-                    CREATE UNIQUE INDEX IF NOT EXISTS idx_signal_events_event_hash
-                    ON signal_events(event_hash);
-                END IF;
-            END $$;
-            """,
-            (settings.db_schema,),
+            sql.SQL(
+                "ALTER TABLE {} ADD COLUMN IF NOT EXISTS event_hash TEXT"
+            ).format(signal_events)
+        )
+        await cur.execute(
+            sql.SQL(
+                "CREATE UNIQUE INDEX IF NOT EXISTS {} ON {} (event_hash)"
+            ).format(index_name, signal_events)
         )
     logger.info("migration_001: event_hash column ensured")
