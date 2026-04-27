@@ -132,12 +132,14 @@ class SignalRepository:
                 )
                 row = await cur.fetchone()
                 assert row is not None
-                return {
+                result = {
                     "id": row["id"],
                     "action": "updated",
                     "pressure_status": pressure_status,
                     "pressure_grade": pressure_grade,
                 }
+                await self.refresh_pressure_series(symbol=symbol)
+                return result
             else:
                 await cur.execute(
                     """
@@ -163,12 +165,14 @@ class SignalRepository:
                 )
                 row = await cur.fetchone()
                 assert row is not None
-                return {
+                result = {
                     "id": row["id"],
                     "action": "created",
                     "pressure_status": pressure_status,
                     "pressure_grade": pressure_grade,
                 }
+                await self.refresh_pressure_series(symbol=symbol)
+                return result
 
     async def get_active_block(self, symbol: str) -> dict | None:
         async with get_cursor() as cur:
@@ -319,9 +323,13 @@ class SignalRepository:
                 UPDATE pressure_blocks
                 SET pressure_status = 'COOLING', updated_at = NOW()
                 WHERE id = %s AND is_active = TRUE
+                RETURNING symbol
                 """,
                 (block_id,),
             )
+            row = await cur.fetchone()
+        if row:
+            await self.refresh_pressure_series(symbol=row["symbol"])
 
     async def mark_block_soft_finalized(self, block_id: int) -> None:
         async with get_cursor() as cur:
@@ -333,9 +341,13 @@ class SignalRepository:
                     finalize_mode = 'SOFT_FINALIZED',
                     updated_at = NOW()
                 WHERE id = %s
+                RETURNING symbol
                 """,
                 (block_id,),
             )
+            row = await cur.fetchone()
+        if row:
+            await self.refresh_pressure_series(symbol=row["symbol"])
 
     async def mark_block_hard_finalized(self, block_id: int) -> None:
         async with get_cursor() as cur:
@@ -347,9 +359,13 @@ class SignalRepository:
                     finalize_mode = 'HARD_FINALIZED',
                     updated_at = NOW()
                 WHERE id = %s
+                RETURNING symbol
                 """,
                 (block_id,),
             )
+            row = await cur.fetchone()
+        if row:
+            await self.refresh_pressure_series(symbol=row["symbol"])
 
     async def get_active_blocks(self) -> list[dict]:
         async with get_cursor() as cur:
@@ -363,10 +379,10 @@ class SignalRepository:
             return await cur.fetchall()
 
     async def get_block_history(
-        self, symbol: str | None = None, limit: int = 50
+        self, symbol: str | None = None, limit: int | None = 50
     ) -> list[dict]:
         async with get_cursor() as cur:
-            if symbol:
+            if symbol and limit is not None:
                 await cur.execute(
                     """
                     SELECT * FROM pressure_blocks
@@ -375,13 +391,29 @@ class SignalRepository:
                     """,
                     (symbol, limit),
                 )
-            else:
+            elif symbol:
+                await cur.execute(
+                    """
+                    SELECT * FROM pressure_blocks
+                    WHERE symbol = %s
+                    ORDER BY end_utc DESC
+                    """,
+                    (symbol,),
+                )
+            elif limit is not None:
                 await cur.execute(
                     """
                     SELECT * FROM pressure_blocks
                     ORDER BY end_utc DESC LIMIT %s
                     """,
                     (limit,),
+                )
+            else:
+                await cur.execute(
+                    """
+                    SELECT * FROM pressure_blocks
+                    ORDER BY end_utc DESC
+                    """
                 )
             return await cur.fetchall()
 
@@ -392,18 +424,156 @@ class SignalRepository:
     ) -> list[dict]:
         return await self.get_block_history(symbol=symbol, limit=limit)
 
+    async def refresh_pressure_series(self, symbol: str | None = None) -> None:
+        rows = await self.get_block_history(symbol=symbol, limit=None)
+        merged = _merge_pressure_series(
+            rows,
+            merge_gap_seconds=settings.max_event_gap_seconds,
+        )
+
+        async with get_cursor() as cur:
+            if symbol:
+                await cur.execute(
+                    "DELETE FROM pressure_series WHERE symbol = %s",
+                    (symbol,),
+                )
+            else:
+                await cur.execute("DELETE FROM pressure_series")
+
+            for series in merged:
+                await cur.execute(
+                    """
+                    INSERT INTO pressure_series (
+                        symbol,
+                        start_utc,
+                        end_utc,
+                        duration_minutes,
+                        event_count,
+                        density_per_minute,
+                        max_gap_seconds,
+                        block_count,
+                        block_ids,
+                        latest_block_id,
+                        latest_trade_plan_id,
+                        latest_pressure_grade,
+                        best_pressure_grade,
+                        pressure_status,
+                        finalize_mode,
+                        is_active,
+                        updated_at
+                    )
+                    VALUES (
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s,
+                        (
+                            SELECT id
+                            FROM trade_plans
+                            WHERE block_id = %s
+                            ORDER BY created_at DESC
+                            LIMIT 1
+                        ),
+                        %s, %s, %s, %s, %s, NOW()
+                    )
+                    """,
+                    (
+                        series["symbol"],
+                        series["start_utc"],
+                        series["end_utc"],
+                        series["duration_minutes"],
+                        series["event_count"],
+                        series["density_per_minute"],
+                        series["max_gap_seconds"],
+                        series["block_count"],
+                        _json_or_none(series["block_ids"]),
+                        series["latest_block_id"],
+                        series["latest_block_id"],
+                        series["latest_pressure_grade"],
+                        series["best_pressure_grade"],
+                        series["pressure_status"],
+                        series["finalize_mode"],
+                        series["is_active"],
+                    ),
+                )
+
     async def get_signal_series(
         self,
         symbol: str | None = None,
         limit: int = 50,
     ) -> list[dict]:
-        raw_limit = max(limit * 10, 100)
-        rows = await self.get_block_history(symbol=symbol, limit=raw_limit)
-        return _merge_pressure_series(
-            rows,
-            merge_gap_seconds=settings.max_event_gap_seconds,
-            limit=limit,
-        )
+        await self.refresh_pressure_series(symbol=symbol)
+        async with get_cursor() as cur:
+            if symbol:
+                await cur.execute(
+                    """
+                    SELECT * FROM pressure_series
+                    WHERE symbol = %s
+                    ORDER BY end_utc DESC, id DESC
+                    LIMIT %s
+                    """,
+                    (symbol, limit),
+                )
+            else:
+                await cur.execute(
+                    """
+                    SELECT * FROM pressure_series
+                    ORDER BY end_utc DESC, id DESC
+                    LIMIT %s
+                    """,
+                    (limit,),
+                )
+            return await cur.fetchall()
+
+    async def get_signal_series_detail(self, symbol: str) -> dict | None:
+        await self.refresh_pressure_series(symbol=symbol)
+        async with get_cursor() as cur:
+            await cur.execute(
+                """
+                SELECT * FROM pressure_series
+                WHERE symbol = %s
+                ORDER BY end_utc DESC, id DESC
+                LIMIT 1
+                """,
+                (symbol,),
+            )
+            series = await cur.fetchone()
+
+        if not series:
+            return None
+
+        async with get_cursor() as cur:
+            await cur.execute(
+                """
+                SELECT
+                    pb.*,
+                    tp.id AS trade_plan_id,
+                    tp.execution_grade,
+                    tp.action,
+                    tp.message
+                FROM pressure_blocks pb
+                LEFT JOIN LATERAL (
+                    SELECT *
+                    FROM trade_plans tp
+                    WHERE tp.block_id = pb.id
+                    ORDER BY tp.created_at DESC
+                    LIMIT 1
+                ) tp ON TRUE
+                WHERE pb.symbol = %s
+                  AND pb.start_utc <= %s
+                  AND pb.end_utc >= %s
+                ORDER BY pb.end_utc DESC, pb.id DESC
+                """,
+                (symbol, series["end_utc"], series["start_utc"]),
+            )
+            blocks = await cur.fetchall()
+
+        trade_plan = None
+        if series.get("latest_trade_plan_id"):
+            trade_plan = await self.get_trade_plan(series["latest_trade_plan_id"])
+
+        return {
+            "series": series,
+            "blocks": blocks,
+            "trade_plan": trade_plan,
+        }
 
     async def get_last_finalized_block(self, symbol: str) -> dict | None:
         async with get_cursor() as cur:

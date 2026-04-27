@@ -111,3 +111,18 @@ async def signal_detail_page(request: Request, signal_id: int):
             "signal": signal,
         },
     )
+
+
+@router.get("/series-detail/{symbol}", response_class=HTMLResponse)
+async def series_detail_page(request: Request, symbol: str):
+    repo = SignalRepository()
+    detail = await repo.get_signal_series_detail(symbol)
+
+    return templates.TemplateResponse(
+        "series_detail.html",
+        {
+            "request": request,
+            "detail": detail,
+            "symbol": symbol,
+        },
+    )

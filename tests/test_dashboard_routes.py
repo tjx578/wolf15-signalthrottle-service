@@ -132,6 +132,51 @@ class FakeSignalRepository:
             "payload": {"reason": "support reaction setup"},
         }
 
+    async def get_signal_series_detail(self, symbol: str) -> dict | None:
+        return {
+            "series": {
+                "symbol": symbol,
+                "start_utc": "2026-04-27T07:15:23Z",
+                "end_utc": "2026-04-27T07:30:03Z",
+                "duration_minutes": 14.67,
+                "event_count": 113,
+                "block_count": 2,
+                "best_pressure_grade": "A-",
+                "latest_pressure_grade": "B+",
+                "pressure_status": "ACTIVE",
+                "max_gap_seconds": 22.0,
+                "latest_trade_plan_id": 9,
+            },
+            "blocks": [
+                {
+                    "id": 9,
+                    "start_utc": "2026-04-27T07:25:40Z",
+                    "end_utc": "2026-04-27T07:30:03Z",
+                    "pressure_grade": "B+",
+                    "event_count": 63,
+                    "duration_minutes": 4.38,
+                    "pressure_status": "ACTIVE",
+                    "trade_plan_id": 9,
+                },
+                {
+                    "id": 8,
+                    "start_utc": "2026-04-27T07:15:23Z",
+                    "end_utc": "2026-04-27T07:25:25Z",
+                    "pressure_grade": "A-",
+                    "event_count": 50,
+                    "duration_minutes": 10.03,
+                    "pressure_status": "SOFT_FINALIZED",
+                    "trade_plan_id": None,
+                },
+            ],
+            "trade_plan": {
+                "id": 9,
+                "trade_plan_id": 9,
+                "symbol": symbol,
+                "message": "GBPUSD B+ pressure with valid market structure. Trade plan shown as watchlist setup.",
+            },
+        }
+
     async def get_dashboard_stats(self) -> dict:
         return {
             "active_blocks": 0,
@@ -196,7 +241,8 @@ def test_dashboard_watchlist_renders_pending_pressure_without_trade_plan(monkeyp
     assert "GBPUSD B+ pressure is valid. Trade plan is required and still pending market-context enrichment." in response.text
     assert "AUDUSD" in response.text
     assert "radar_below_threshold" in response.text
-    assert "/signal-detail/2" in response.text
+    assert "/series-detail/GBPUSD" in response.text
+    assert "/series-detail/USDJPY" in response.text
     assert "trade_plan_ready" in response.text
     assert "YES" in response.text
 
@@ -215,6 +261,26 @@ def test_signal_detail_shows_rationale_summary(monkeypatch) -> None:
     assert response.status_code == 200
     assert "Rationale" in response.text
     assert "GBPUSD B+ pressure with valid market structure. Trade plan shown as watchlist setup." in response.text
+    assert "/series-detail/GBPUSD" in response.text
+
+
+def test_series_detail_shows_merged_series_and_raw_blocks(monkeypatch) -> None:
+    monkeypatch.setattr(lifecycle, "init_db", _noop)
+    monkeypatch.setattr(lifecycle, "run_migrations", _noop)
+    monkeypatch.setattr(lifecycle, "close_db", _noop)
+    monkeypatch.setattr(routes_dashboard, "SignalRepository", FakeSignalRepository)
+
+    app = create_app()
+    client = TestClient(app)
+
+    response = client.get("/series-detail/GBPUSD")
+
+    assert response.status_code == 200
+    assert "Pressure Series Detail" in response.text
+    assert "Blocks Merged" in response.text
+    assert "Raw Block History" in response.text
+    assert "Plan 9" in response.text
+    assert "2026-04-27T07:15:23Z" in response.text
 
 
 def test_dashboard_keeps_signals_when_outcome_queries_fail(monkeypatch) -> None:

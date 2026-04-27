@@ -17,6 +17,7 @@ async def run_migrations() -> None:
         _migration_002_ensure_phase2_columns,
         _migration_003_ensure_realtime_columns,
         _migration_004_ensure_signal_outcomes_columns,
+        _migration_005_ensure_pressure_series_table,
     ]
     for m in migrations:
         try:
@@ -215,3 +216,74 @@ async def _migration_004_ensure_signal_outcomes_columns() -> None:
         "chart_phase, pressure_grade, execution_grade",
     )
     logger.info("migration_004: signal_outcomes columns ensured")
+
+
+async def _migration_005_ensure_pressure_series_table() -> None:
+    async with get_cursor() as cur:
+        await cur.execute(
+            sql.SQL(
+                """
+                CREATE TABLE IF NOT EXISTS {} (
+                    id BIGSERIAL PRIMARY KEY,
+                    symbol TEXT NOT NULL,
+                    start_utc TIMESTAMPTZ NOT NULL,
+                    end_utc TIMESTAMPTZ NOT NULL,
+                    duration_minutes NUMERIC NOT NULL,
+                    event_count INT NOT NULL,
+                    density_per_minute NUMERIC NOT NULL,
+                    max_gap_seconds NUMERIC,
+                    block_count INT NOT NULL DEFAULT 1,
+                    block_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+                    latest_block_id BIGINT,
+                    latest_trade_plan_id BIGINT,
+                    latest_pressure_grade TEXT,
+                    best_pressure_grade TEXT,
+                    pressure_status TEXT,
+                    finalize_mode TEXT,
+                    is_active BOOLEAN DEFAULT FALSE,
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ DEFAULT NOW()
+                )
+                """
+            ).format(sql.Identifier(settings.db_schema, "pressure_series"))
+        )
+
+    columns = [
+        ("symbol", "TEXT"),
+        ("start_utc", "TIMESTAMPTZ"),
+        ("end_utc", "TIMESTAMPTZ"),
+        ("duration_minutes", "NUMERIC"),
+        ("event_count", "INT"),
+        ("density_per_minute", "NUMERIC"),
+        ("max_gap_seconds", "NUMERIC"),
+        ("block_count", "INT NOT NULL DEFAULT 1"),
+        ("block_ids", "JSONB NOT NULL DEFAULT '[]'::jsonb"),
+        ("latest_block_id", "BIGINT"),
+        ("latest_trade_plan_id", "BIGINT"),
+        ("latest_pressure_grade", "TEXT"),
+        ("best_pressure_grade", "TEXT"),
+        ("pressure_status", "TEXT"),
+        ("finalize_mode", "TEXT"),
+        ("is_active", "BOOLEAN DEFAULT FALSE"),
+        ("updated_at", "TIMESTAMPTZ DEFAULT NOW()"),
+        ("created_at", "TIMESTAMPTZ DEFAULT NOW()"),
+    ]
+    for column_name, type_sql in columns:
+        await _ensure_column("pressure_series", column_name, type_sql)
+
+    await _ensure_unique_index(
+        "idx_st_pressure_series_symbol_window",
+        "pressure_series",
+        "symbol, start_utc, end_utc",
+    )
+    await _ensure_index(
+        "idx_st_pressure_series_symbol_time",
+        "pressure_series",
+        "symbol, end_utc DESC",
+    )
+    await _ensure_index(
+        "idx_st_pressure_series_latest_block",
+        "pressure_series",
+        "latest_block_id",
+    )
+    logger.info("migration_005: pressure_series table ensured")

@@ -75,7 +75,7 @@
       <tbody>
         {% for s in radar_signals %}
         <tr>
-          <td class="symbol">{{ s.symbol }}</td>
+          <td class="symbol"><a href="/series-detail/{{ s.symbol }}">{{ s.symbol }}</a></td>
           <td><span class="badge">{{ s.pressure_grade }}</span></td>
           <td>{{ s.duration_minutes }}</td>
           <td>{{ s.event_count }}</td>
@@ -115,11 +115,7 @@
         {% for s in watchlist_signals %}
         <tr>
           <td class="symbol">
-            {% if s.trade_plan_id or s.id %}
-            <a href="/signal-detail/{{ s.trade_plan_id or s.id }}">{{ s.symbol }}</a>
-            {% else %}
-            {{ s.symbol }}
-            {% endif %}
+            <a href="/series-detail/{{ s.symbol }}">{{ s.symbol }}</a>
           </td>
           <td><span class="badge">{{ s.pressure_grade }}</span></td>
           <td><span class="badge">{{ s.execution_grade or 'PENDING' }}</span></td>
@@ -163,11 +159,7 @@
         {% for s in ready_trade_plans %}
         <tr>
           <td class="symbol">
-            {% if s.trade_plan_id or s.id %}
-            <a href="/signal-detail/{{ s.trade_plan_id or s.id }}">{{ s.symbol }}</a>
-            {% else %}
-            {{ s.symbol }}
-            {% endif %}
+            <a href="/series-detail/{{ s.symbol }}">{{ s.symbol }}</a>
           </td>
           <td><span class="badge">{{ s.pressure_grade }}</span></td>
           <td><span class="badge">{{ s.execution_grade or 'PENDING' }}</span></td>

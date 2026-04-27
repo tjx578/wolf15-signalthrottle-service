@@ -48,6 +48,9 @@
   <pre class="json-view">{{ signal.payload | tojson(indent=2) if signal.payload else '{}' }}</pre>
 
   <p><a href="/">&larr; Back to dashboard</a></p>
+  {% if signal.symbol %}
+  <p><a href="/series-detail/{{ signal.symbol }}">View pressure series for {{ signal.symbol }}</a></p>
+  {% endif %}
   {% else %}
   <p class="empty">Signal not found</p>
   <p><a href="/">&larr; Back to dashboard</a></p>

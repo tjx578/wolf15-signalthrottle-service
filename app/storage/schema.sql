@@ -64,6 +64,43 @@ ON signalthrottle.pressure_blocks(is_active, end_utc DESC);
 
 -- -------------------------------------------------------
 
+CREATE TABLE IF NOT EXISTS signalthrottle.pressure_series (
+    id BIGSERIAL PRIMARY KEY,
+    symbol TEXT NOT NULL,
+
+    start_utc TIMESTAMPTZ NOT NULL,
+    end_utc TIMESTAMPTZ NOT NULL,
+    duration_minutes NUMERIC NOT NULL,
+    event_count INT NOT NULL,
+    density_per_minute NUMERIC NOT NULL,
+    max_gap_seconds NUMERIC,
+
+    block_count INT NOT NULL DEFAULT 1,
+    block_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+    latest_block_id BIGINT,
+    latest_trade_plan_id BIGINT,
+
+    latest_pressure_grade TEXT,
+    best_pressure_grade TEXT,
+    pressure_status TEXT,
+    finalize_mode TEXT,
+    is_active BOOLEAN DEFAULT FALSE,
+
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_st_pressure_series_symbol_window
+ON signalthrottle.pressure_series(symbol, start_utc, end_utc);
+
+CREATE INDEX IF NOT EXISTS idx_st_pressure_series_symbol_time
+ON signalthrottle.pressure_series(symbol, end_utc DESC);
+
+CREATE INDEX IF NOT EXISTS idx_st_pressure_series_latest_block
+ON signalthrottle.pressure_series(latest_block_id);
+
+-- -------------------------------------------------------
+
 CREATE TABLE IF NOT EXISTS signalthrottle.market_snapshots (
     id BIGSERIAL PRIMARY KEY,
     block_id BIGINT REFERENCES signalthrottle.pressure_blocks(id) ON DELETE CASCADE,

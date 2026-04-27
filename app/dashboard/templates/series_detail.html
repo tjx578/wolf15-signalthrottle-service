@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="panel">
+  <h2>Pressure Series Detail</h2>
+  {% if detail and detail.series %}
+  <div class="detail-grid">
+    <div class="detail-item">
+      <span class="label">Symbol</span>
+      <strong>{{ detail.series.symbol }}</strong>
+    </div>
+    <div class="detail-item">
+      <span class="label">Series Start</span>
+      <strong>{{ detail.series.start_utc }}</strong>
+    </div>
+    <div class="detail-item">
+      <span class="label">Series End</span>
+      <strong>{{ detail.series.end_utc }}</strong>
+    </div>
+    <div class="detail-item">
+      <span class="label">Duration</span>
+      <strong>{{ detail.series.duration_minutes }} min</strong>
+    </div>
+    <div class="detail-item">
+      <span class="label">Events</span>
+      <strong>{{ detail.series.event_count }}</strong>
+    </div>
+    <div class="detail-item">
+      <span class="label">Blocks Merged</span>
+      <strong>{{ detail.series.block_count }}</strong>
+    </div>
+    <div class="detail-item">
+      <span class="label">Best Grade</span>
+      <span class="badge badge-lg">{{ detail.series.best_pressure_grade }}</span>
+    </div>
+    <div class="detail-item">
+      <span class="label">Latest Grade</span>
+      <span class="badge badge-lg">{{ detail.series.latest_pressure_grade }}</span>
+    </div>
+    <div class="detail-item">
+      <span class="label">Status</span>
+      <strong>{{ detail.series.pressure_status or '-' }}</strong>
+    </div>
+    <div class="detail-item">
+      <span class="label">Max Gap</span>
+      <strong>{{ detail.series.max_gap_seconds or '-' }}s</strong>
+    </div>
+  </div>
+
+  {% if detail.trade_plan %}
+  <section class="panel">
+    <h3>Latest Trade Plan</h3>
+    <p>{{ detail.trade_plan.display_message or detail.trade_plan.message or '-' }}</p>
+    <p><a href="/signal-detail/{{ detail.trade_plan.trade_plan_id or detail.trade_plan.id }}">Open trade plan detail</a></p>
+  </section>
+  {% endif %}
+
+  <section class="panel">
+    <h3>Raw Block History</h3>
+    {% if detail.blocks %}
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Block ID</th>
+            <th>Start UTC</th>
+            <th>End UTC</th>
+            <th>Pressure</th>
+            <th>Events</th>
+            <th>Duration (m)</th>
+            <th>Status</th>
+            <th>Trade Plan</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for block in detail.blocks %}
+          <tr>
+            <td>{{ block.id }}</td>
+            <td>{{ block.start_utc }}</td>
+            <td>{{ block.end_utc }}</td>
+            <td><span class="badge">{{ block.pressure_grade }}</span></td>
+            <td>{{ block.event_count }}</td>
+            <td>{{ block.duration_minutes }}</td>
+            <td>{{ block.pressure_status or block.finalize_mode or '-' }}</td>
+            <td>
+              {% if block.trade_plan_id %}
+              <a href="/signal-detail/{{ block.trade_plan_id }}">Plan {{ block.trade_plan_id }}</a>
+              {% else %}
+              -
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="empty">No raw blocks found for this series.</p>
+    {% endif %}
+  </section>
+
+  <p><a href="/">&larr; Back to dashboard</a></p>
+  {% else %}
+  <p class="empty">No pressure series found for {{ symbol }}</p>
+  <p><a href="/">&larr; Back to dashboard</a></p>
+  {% endif %}
+</section>
+{% endblock %}
