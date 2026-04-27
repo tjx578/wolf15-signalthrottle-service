@@ -9,7 +9,7 @@ from typing import AsyncIterator
 from fastapi import FastAPI
 
 from app.detector.finalizer import SignalFinalizer
-from app.ingestion.engine_log_sync import EngineLogSync
+from app.ingestion.engine_log_sync import EngineLogSync, set_last_sync_result
 from app.logging_config import setup_logging
 from app.storage.postgres import close_db, init_db
 from app.storage.migrations import run_migrations
@@ -69,6 +69,7 @@ async def engine_log_sync_loop(stop_event: asyncio.Event) -> None:
                     result.get("duplicates_skipped"),
                 )
         except Exception as exc:
+            set_last_sync_result({"status": "error", "error": str(exc)})
             logger.exception("Engine log sync loop failed: %s", exc)
 
         try:

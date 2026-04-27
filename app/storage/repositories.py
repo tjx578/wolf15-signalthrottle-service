@@ -4,6 +4,7 @@ import logging
 from datetime import datetime
 from typing import Any
 
+from ..config import settings
 from ..models.log_event import LogEvent
 from ..parser.timestamp_mapper import to_chart_time, to_wita
 from ..scoring.pressure_grader import grade_pressure
@@ -692,6 +693,56 @@ class SignalRepository:
                 "priority_signals": priority,
                 "avg_density": avg_density,
                 "last_update": last_str,
+            }
+
+    async def get_today_signal_debug_counts(
+        self,
+        *,
+        start_utc: datetime,
+        end_utc: datetime,
+    ) -> dict:
+        async with get_cursor() as cur:
+            await cur.execute(
+                """
+                SELECT
+                    COUNT(*) AS signal_events_today,
+                    COUNT(*) FILTER (WHERE source_service = %s) AS engine_source_events_today,
+                    MAX(timestamp_utc) AS latest_signal_event_utc
+                FROM signal_events
+                WHERE timestamp_utc >= %s AND timestamp_utc <= %s
+                """,
+                (settings.engine_log_source_service, start_utc, end_utc),
+            )
+            signal_row = await cur.fetchone() or {}
+
+            await cur.execute(
+                """
+                SELECT COUNT(*) AS active_blocks_today
+                FROM pressure_blocks
+                WHERE end_utc >= %s AND end_utc <= %s AND is_active = TRUE
+                """,
+                (start_utc, end_utc),
+            )
+            active_row = await cur.fetchone() or {}
+
+            await cur.execute(
+                """
+                SELECT COUNT(*) AS dashboard_signals_today
+                FROM pressure_blocks
+                WHERE end_utc >= %s AND end_utc <= %s
+                  AND pressure_grade IN ('B+', 'A-', 'A', 'A+')
+                """,
+                (start_utc, end_utc),
+            )
+            dashboard_row = await cur.fetchone() or {}
+
+            latest_event = signal_row.get("latest_signal_event_utc")
+            return {
+                "signal_events_today": int(signal_row.get("signal_events_today") or 0),
+                "engine_source_events_today": int(signal_row.get("engine_source_events_today") or 0),
+                "active_blocks_today": int(active_row.get("active_blocks_today") or 0),
+                "dashboard_signals_today": int(dashboard_row.get("dashboard_signals_today") or 0),
+                "latest_signal_event_utc": latest_event.isoformat() if latest_event else None,
             }
 
     # ----- market_snapshots -----

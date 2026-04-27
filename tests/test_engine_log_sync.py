@@ -116,3 +116,32 @@ def test_sync_today_ingests_json_structured_engine_logs(monkeypatch) -> None:
     assert result["events_parsed"] == 2
     assert result["events_stored"] == 2
     assert repository.upserted == ["GBPUSD", "GBPUSD"]
+
+
+def test_payload_to_log_text_accepts_json_list_payload() -> None:
+    syncer = engine_log_sync.EngineLogSync(repo_factory=FakeSignalRepository)
+
+    output = syncer._payload_to_log_text(
+        [
+            {
+                "message": "[SignalThrottle] GBPUSD THROTTLED — 3 signals in last 300s (max 3)",
+                "timestamp": "2026-04-27T07:15:23.169918856Z",
+            },
+            {
+                "message": "[SignalThrottle] GBPUSD THROTTLED — 3 signals in last 300s (max 3)",
+                "timestamp": "2026-04-27T07:15:27.593071262Z",
+            },
+        ]
+    )
+
+    assert '"message": "[SignalThrottle] GBPUSD THROTTLED' in output
+    assert '"timestamp": "2026-04-27T07:15:23.169918856Z"' in output
+
+
+def test_explain_sync_status_reports_missing_source() -> None:
+    reason = engine_log_sync.explain_sync_status(
+        {"status": "no_source_configured"},
+        0,
+    )
+
+    assert reason == "engine_log_source_not_configured"

@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from app.api.routes_blocks import router as blocks_router
+from app.api.routes_debug import router as debug_router
 from app.api.routes_dashboard import router as dashboard_router
 from app.api.routes_health import router as health_router
 from app.api.routes_market import router as market_router
@@ -46,6 +47,7 @@ def create_app() -> FastAPI:
 
     # API routes
     app.include_router(health_router, tags=["health"])
+    app.include_router(debug_router, prefix="/debug", tags=["debug"])
     app.include_router(webhook_router, prefix="/webhook", tags=["webhook"])
     app.include_router(replay_router, prefix="/replay", tags=["replay"])
     app.include_router(signals_router, prefix="/signals", tags=["signals"])
