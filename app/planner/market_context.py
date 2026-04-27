@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 from ..config import settings
 from ..market.finnhub_client import FinnhubClient
 from ..market.market_snapshot_builder import MarketSnapshotBuilder
-from ..storage.repository_protocols import MarketContextRepository
+from ..storage.repository_protocols import (
+    MarketContextRepository,
+    MarketContextWriteRepository,
+)
 from .trade_plan_builder import build_trade_plan
 from ..storage.repositories import SignalRepository
 
@@ -71,14 +74,15 @@ async def enrich_block_with_market_context(
 
     client = FinnhubClient(api_key=settings.finnhub_api_key)
     snapshot_builder = MarketSnapshotBuilder(client)
+    write_repository = cast(MarketContextWriteRepository, repository)
 
     try:
         snapshot = await snapshot_builder.build(block)
-        snapshot_id = await repository.insert_market_snapshot(snapshot)
+        snapshot_id = await write_repository.insert_market_snapshot(snapshot)
         trade_plan = build_trade_plan(block, snapshot)
         trade_plan["block_id"] = block_id
         trade_plan["market_snapshot_id"] = snapshot_id
-        trade_plan_id = await repository.insert_trade_plan(block_id, trade_plan)
+        trade_plan_id = await write_repository.insert_trade_plan(block_id, trade_plan)
         trade_plan["id"] = trade_plan_id
         await _mark("READY", "READY")
         return trade_plan

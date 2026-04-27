@@ -17,6 +17,9 @@ class MarketContextRepository(Protocol):
     async def get_trade_plan_for_block(self, block_id: int) -> dict[str, Any] | None:
         ...
 
+
+class MarketContextWriteRepository(MarketContextRepository, Protocol):
+
     async def insert_market_snapshot(self, snapshot: dict[str, Any]) -> int:
         ...
 
@@ -24,7 +27,7 @@ class MarketContextRepository(Protocol):
         ...
 
 
-class FinalizerRepository(MarketContextRepository, Protocol):
+class FinalizerRepository(MarketContextWriteRepository, Protocol):
     async def get_active_or_cooling_blocks(self) -> list[dict[str, Any]]:
         ...
 
