@@ -16,6 +16,13 @@ from app.api.routes_replay import router as replay_router
 from app.api.routes_signals import router as signals_router
 from app.api.routes_webhook import router as webhook_router
 from app.lifecycle import lifespan
+from app.logging_config import setup_logging
+
+# Configure logging at import time so that Uvicorn's own startup messages
+# ("Started server process", "Waiting for application startup",
+# "Application startup complete", "Uvicorn running on ...") are emitted
+# through our stdout handler at INFO level before the lifespan hook runs.
+setup_logging()
 
 logger = logging.getLogger(__name__)
 
