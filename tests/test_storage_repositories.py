@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
+from contextlib import asynccontextmanager
 
+import app.storage.repositories as repositories_module
 from app.storage.repositories import (
+    SignalRepository,
     _matches_signal_bucket,
     _merge_pressure_series,
     _select_latest_signal_rows,
@@ -280,3 +284,64 @@ def test_select_latest_signal_rows_uses_one_series_for_overlapping_replay_blocks
     assert deduped[0]["block_count"] == 2
     assert deduped[0]["start_utc"] == datetime(2026, 4, 27, 6, 57, 13, tzinfo=timezone.utc)
     assert deduped[0]["end_utc"] == datetime(2026, 4, 27, 7, 15, 17, tzinfo=timezone.utc)
+
+
+def test_repository_latest_signals_sql_surfaces_reason_code_fallback(monkeypatch) -> None:
+    rows = [
+        {
+            "id": None,
+            "trade_plan_id": None,
+            "block_id": 9,
+            "symbol": "GBPUSD",
+            "start_utc": datetime(2026, 4, 27, 7, 20, 36, tzinfo=timezone.utc),
+            "end_utc": datetime(2026, 4, 27, 7, 30, 3, tzinfo=timezone.utc),
+            "duration_minutes": 9.45,
+            "event_count": 113,
+            "density_per_minute": 11.96,
+            "max_gap_seconds": 14.58,
+            "avg_gap_seconds": 5.06,
+            "pressure_grade": "B+",
+            "pressure_status": "REPLAY",
+            "finalize_mode": "REPLAY_FINALIZE",
+            "is_active": False,
+            "execution_grade": None,
+            "execution_side": None,
+            "chart_phase": None,
+            "reason_code": "TRADE_PLAN_REQUIRED",
+            "action": None,
+            "entry_zone": None,
+            "invalidation": None,
+            "message": None,
+            "signal_bucket": None,
+            "trade_plan_pressure_status": None,
+            "trade_plan_status": "TRADE_PLAN_REQUIRED",
+            "market_context_status": "PENDING_OR_FAILED",
+            "pending_reason": None,
+            "dashboard_bucket": "watchlist_trade_plan_pending",
+            "owner_alert": "PENDING",
+            "display_message": "GBPUSD B+ pressure is valid. Trade plan is required.",
+            "trade_plan_required": True,
+        }
+    ]
+
+    class FakeCursor:
+        executed_sql: str = ""
+
+        async def execute(self, query, params=None) -> None:
+            FakeCursor.executed_sql = str(query)
+
+        async def fetchall(self) -> list[dict]:
+            return rows
+
+    @asynccontextmanager
+    async def fake_get_cursor():
+        yield FakeCursor()
+
+    monkeypatch.setattr(repositories_module, "get_cursor", fake_get_cursor)
+
+    repo = SignalRepository()
+    result = asyncio.run(repo.get_latest_signals(limit=10, bucket="watchlist"))
+
+    assert "AS reason_code" in FakeCursor.executed_sql
+    assert "COALESCE(" in FakeCursor.executed_sql
+    assert result[0]["reason_code"] == "TRADE_PLAN_REQUIRED"

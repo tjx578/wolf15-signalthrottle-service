@@ -729,6 +729,32 @@ GET /signals/latest?bucket=actionable
 GET /signals/latest?bucket=watchlist
 ```
 
+Public contract fields yang selalu diekspos di level top-level response row:
+
+```text
+reason_code
+h4_structure
+h4_context_type
+```
+
+Makna field H4:
+
+```text
+h4_structure      = regime H4 kasar
+h4_context_type   = subtype semantik dari regime itu
+```
+
+Contoh subtype yang saat ini dipakai:
+
+```text
+CONTINUATION_TREND
+FAILED_BREAKOUT_ACCEPTANCE
+FAILED_BREAKDOWN_ACCEPTANCE
+TERMINAL_REJECTION
+RANGE_EDGE_COMPRESSION
+RANGE_OR_TRANSITION
+```
+
 Latest state memakai bucket canonical berikut:
 
 ```text
@@ -736,6 +762,42 @@ bucket=radar      -> grade di bawah B+
 bucket=watchlist  -> B+ ke atas, trade plan belum ready
 bucket=ready      -> B+ ke atas, trade plan sudah ada
 ```
+
+Example row:
+
+```json
+{
+    "symbol": "USDJPY",
+    "pressure_grade": "A",
+    "chart_phase": "UPPER_RANGE_EXHAUSTION_RISK",
+    "reason_code": "UPPER_RANGE_FAILED_EXPANSION",
+    "h4_structure": "BULLISH_EXHAUSTION_RISK",
+    "h4_context_type": "FAILED_BREAKOUT_ACCEPTANCE"
+}
+```
+
+### Latest trade plans
+
+```http
+GET /signals/trade-plans
+```
+
+Optional query params:
+
+```text
+limit=20
+bucket=all|watchlist|actionable
+```
+
+Response contract untuk setiap row juga mengekspos top-level:
+
+```text
+reason_code
+h4_structure
+h4_context_type
+```
+
+Ini dipakai agar consumer API tidak perlu mengurai `payload.snapshot` hanya untuk membaca gating H4 atau subtype exhaustion.
 
 ### Signal history
 

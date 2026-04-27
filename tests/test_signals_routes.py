@@ -53,16 +53,16 @@ class FakeSignalRepository:
     async def get_latest_trade_plans(self, limit: int = 20, bucket: str = "all") -> list[dict]:
         data = {
             "all": [
-                {"id": 1, "symbol": "AUDUSD", "execution_grade": "C", "action": "NO_TRADE_WAIT_CONTEXT"},
-                {"id": 3, "symbol": "EURUSD", "execution_grade": "B+", "action": "WAIT_BREAKDOWN_OR_RECLAIM"},
-                {"id": 2, "symbol": "USDJPY", "execution_grade": "A", "action": "BUY_ON_RETEST_OR_RECLAIM_HOLD"},
+                {"id": 1, "symbol": "AUDUSD", "execution_grade": "C", "action": "NO_TRADE_WAIT_CONTEXT", "payload": {"snapshot": {}}, "h4_structure": None, "h4_context_type": None},
+                {"id": 3, "symbol": "EURUSD", "execution_grade": "B+", "action": "WAIT_BREAKDOWN_OR_RECLAIM", "payload": {"snapshot": {"h4_structure": "BEARISH_EXHAUSTION_RISK", "h4_context_type": "FAILED_BREAKDOWN_ACCEPTANCE"}}},
+                {"id": 2, "symbol": "USDJPY", "execution_grade": "A", "action": "BUY_ON_RETEST_OR_RECLAIM_HOLD", "payload": {"snapshot": {"h4_structure": "BULLISH_CONTINUATION", "h4_context_type": "CONTINUATION_TREND"}}},
             ],
             "actionable": [
-                {"id": 2, "symbol": "USDJPY", "execution_grade": "A", "action": "BUY_ON_RETEST_OR_RECLAIM_HOLD"},
+                {"id": 2, "symbol": "USDJPY", "execution_grade": "A", "action": "BUY_ON_RETEST_OR_RECLAIM_HOLD", "payload": {"snapshot": {"h4_structure": "BULLISH_CONTINUATION", "h4_context_type": "CONTINUATION_TREND"}}},
             ],
             "watchlist": [
-                {"id": 1, "symbol": "AUDUSD", "execution_grade": "C", "action": "NO_TRADE_WAIT_CONTEXT"},
-                {"id": 3, "symbol": "EURUSD", "execution_grade": "B+", "action": "WAIT_BREAKDOWN_OR_RECLAIM"},
+                {"id": 1, "symbol": "AUDUSD", "execution_grade": "C", "action": "NO_TRADE_WAIT_CONTEXT", "payload": {"snapshot": {}}, "h4_structure": None, "h4_context_type": None},
+                {"id": 3, "symbol": "EURUSD", "execution_grade": "B+", "action": "WAIT_BREAKDOWN_OR_RECLAIM", "payload": {"snapshot": {"h4_structure": "BEARISH_EXHAUSTION_RISK", "h4_context_type": "FAILED_BREAKDOWN_ACCEPTANCE"}}},
             ],
         }
         return data[bucket][:limit]
@@ -107,6 +107,8 @@ class FakeSignalRepository:
                     "pressure_grade": "C",
                     "execution_grade": None,
                     "action": None,
+                    "h4_structure": None,
+                    "h4_context_type": None,
                     "trade_plan_status": "NOT_REQUIRED",
                     "market_context_status": "NOT_REQUIRED",
                     "dashboard_bucket": "radar_below_threshold",
@@ -119,6 +121,8 @@ class FakeSignalRepository:
                     "pressure_grade": "B+",
                     "execution_grade": None,
                     "action": None,
+                    "h4_structure": "BEARISH_CONTINUATION",
+                    "h4_context_type": "CONTINUATION_TREND",
                     "trade_plan_status": "TRADE_PLAN_REQUIRED",
                     "market_context_status": "PENDING_OR_FAILED",
                     "dashboard_bucket": "watchlist_trade_plan_pending",
@@ -131,6 +135,8 @@ class FakeSignalRepository:
                     "pressure_grade": "A-",
                     "execution_grade": "B+",
                     "action": "WAIT_BREAKDOWN_OR_RECLAIM",
+                    "h4_structure": "BEARISH_EXHAUSTION_RISK",
+                    "h4_context_type": "FAILED_BREAKDOWN_ACCEPTANCE",
                     "trade_plan_status": "READY",
                     "market_context_status": "READY",
                     "dashboard_bucket": "trade_plan_ready",
@@ -143,6 +149,8 @@ class FakeSignalRepository:
                     "pressure_grade": "A",
                     "execution_grade": "A",
                     "action": "BUY_ON_RETEST_OR_RECLAIM_HOLD",
+                    "h4_structure": "BULLISH_CONTINUATION",
+                    "h4_context_type": "CONTINUATION_TREND",
                     "trade_plan_status": "READY",
                     "market_context_status": "READY",
                     "dashboard_bucket": "trade_plan_ready",
@@ -157,6 +165,8 @@ class FakeSignalRepository:
                     "pressure_grade": "C",
                     "execution_grade": None,
                     "action": None,
+                    "h4_structure": None,
+                    "h4_context_type": None,
                     "trade_plan_status": "NOT_REQUIRED",
                     "market_context_status": "NOT_REQUIRED",
                     "dashboard_bucket": "radar_below_threshold",
@@ -171,6 +181,8 @@ class FakeSignalRepository:
                     "pressure_grade": "B+",
                     "execution_grade": None,
                     "action": None,
+                    "h4_structure": "BEARISH_CONTINUATION",
+                    "h4_context_type": "CONTINUATION_TREND",
                     "trade_plan_status": "TRADE_PLAN_REQUIRED",
                     "market_context_status": "PENDING_OR_FAILED",
                     "dashboard_bucket": "watchlist_trade_plan_pending",
@@ -186,6 +198,8 @@ class FakeSignalRepository:
                     "pressure_grade": "A-",
                     "execution_grade": "B+",
                     "action": "WAIT_BREAKDOWN_OR_RECLAIM",
+                    "h4_structure": "BEARISH_EXHAUSTION_RISK",
+                    "h4_context_type": "FAILED_BREAKDOWN_ACCEPTANCE",
                     "trade_plan_status": "READY",
                     "market_context_status": "READY",
                     "dashboard_bucket": "trade_plan_ready",
@@ -200,6 +214,8 @@ class FakeSignalRepository:
                     "pressure_grade": "A-",
                     "execution_grade": "B+",
                     "action": "WAIT_BREAKDOWN_OR_RECLAIM",
+                    "h4_structure": "BEARISH_EXHAUSTION_RISK",
+                    "h4_context_type": "FAILED_BREAKDOWN_ACCEPTANCE",
                     "trade_plan_status": "READY",
                     "market_context_status": "READY",
                     "dashboard_bucket": "trade_plan_ready",
@@ -214,6 +230,8 @@ class FakeSignalRepository:
                     "pressure_grade": "A",
                     "execution_grade": "A",
                     "action": "BUY_ON_RETEST_OR_RECLAIM_HOLD",
+                    "h4_structure": "BULLISH_CONTINUATION",
+                    "h4_context_type": "CONTINUATION_TREND",
                     "trade_plan_status": "READY",
                     "market_context_status": "READY",
                     "dashboard_bucket": "trade_plan_ready",
@@ -228,6 +246,8 @@ class FakeSignalRepository:
                     "pressure_grade": "A",
                     "execution_grade": "A",
                     "action": "BUY_ON_RETEST_OR_RECLAIM_HOLD",
+                    "h4_structure": "BULLISH_CONTINUATION",
+                    "h4_context_type": "CONTINUATION_TREND",
                     "trade_plan_status": "READY",
                     "market_context_status": "READY",
                     "dashboard_bucket": "trade_plan_ready",
@@ -235,6 +255,24 @@ class FakeSignalRepository:
             ],
         }
         return data[bucket][:limit]
+
+    async def get_trade_plan(self, signal_id: int) -> dict | None:
+        if signal_id != 2:
+            return None
+        return {
+            "id": 2,
+            "trade_plan_id": 2,
+            "symbol": "USDJPY",
+            "execution_grade": "A",
+            "action": "BUY_ON_RETEST_OR_RECLAIM_HOLD",
+            "reason_code": "PIVOT_RECLAIM_VALID",
+            "payload": {
+                "snapshot": {
+                    "h4_structure": "BULLISH_CONTINUATION",
+                    "h4_context_type": "CONTINUATION_TREND",
+                }
+            },
+        }
 
 
 def test_latest_signals_supports_bucket_filter(monkeypatch) -> None:
@@ -254,6 +292,8 @@ def test_latest_signals_supports_bucket_filter(monkeypatch) -> None:
     assert payload["count"] == 1
     assert payload["signals"][0]["symbol"] == "USDJPY"
     assert payload["signals"][0]["trade_plan_status"] == "READY"
+    assert payload["signals"][0]["h4_structure"] == "BULLISH_CONTINUATION"
+    assert payload["signals"][0]["h4_context_type"] == "CONTINUATION_TREND"
 
 
 def test_latest_signals_invalid_bucket_falls_back_to_all(monkeypatch) -> None:
@@ -294,6 +334,8 @@ def test_latest_signals_watchlist_includes_b_plus(monkeypatch) -> None:
     assert payload["signals"][0]["execution_grade"] is None
     assert payload["signals"][0]["dashboard_bucket"] == "watchlist_trade_plan_pending"
     assert payload["signals"][0]["owner_alert"] == "PENDING"
+    assert payload["signals"][0]["h4_structure"] == "BEARISH_CONTINUATION"
+    assert payload["signals"][0]["h4_context_type"] == "CONTINUATION_TREND"
 
 
 def test_latest_signals_priority_returns_a_grades(monkeypatch) -> None:
@@ -313,6 +355,8 @@ def test_latest_signals_priority_returns_a_grades(monkeypatch) -> None:
     assert payload["count"] == 1
     assert payload["signals"][0]["pressure_grade"] == "A"
     assert payload["signals"][0]["dashboard_bucket"] == "trade_plan_ready"
+    assert payload["signals"][0]["h4_structure"] == "BULLISH_CONTINUATION"
+    assert payload["signals"][0]["h4_context_type"] == "CONTINUATION_TREND"
 
 
 def test_latest_signals_radar_returns_below_threshold_rows(monkeypatch) -> None:
@@ -332,6 +376,62 @@ def test_latest_signals_radar_returns_below_threshold_rows(monkeypatch) -> None:
     assert payload["count"] == 1
     assert payload["signals"][0]["symbol"] == "EURGBP"
     assert payload["signals"][0]["dashboard_bucket"] == "radar_below_threshold"
+    assert "h4_structure" in payload["signals"][0]
+    assert "h4_context_type" in payload["signals"][0]
+
+
+def test_trade_plans_endpoint_exposes_explicit_h4_structure_contract(monkeypatch) -> None:
+    monkeypatch.setattr(lifecycle, "init_db", _noop)
+    monkeypatch.setattr(lifecycle, "run_migrations", _noop)
+    monkeypatch.setattr(lifecycle, "close_db", _noop)
+    monkeypatch.setattr(routes_signals, "SignalRepository", FakeSignalRepository)
+
+    app = create_app()
+    client = TestClient(app)
+
+    response = client.get("/signals/trade-plans", params={"bucket": "watchlist"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["bucket"] == "watchlist"
+    assert payload["count"] == 2
+    assert payload["trade_plans"][1]["symbol"] == "EURUSD"
+    assert payload["trade_plans"][1]["h4_structure"] == "BEARISH_EXHAUSTION_RISK"
+    assert payload["trade_plans"][1]["h4_context_type"] == "FAILED_BREAKDOWN_ACCEPTANCE"
+
+
+def test_trade_plans_invalid_bucket_falls_back_to_all(monkeypatch) -> None:
+    monkeypatch.setattr(lifecycle, "init_db", _noop)
+    monkeypatch.setattr(lifecycle, "run_migrations", _noop)
+    monkeypatch.setattr(lifecycle, "close_db", _noop)
+    monkeypatch.setattr(routes_signals, "SignalRepository", FakeSignalRepository)
+
+    app = create_app()
+    client = TestClient(app)
+
+    response = client.get("/signals/trade-plans", params={"bucket": "unknown"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["bucket"] == "all"
+    assert payload["count"] == 3
+
+
+def test_signal_detail_exposes_h4_contract_fields(monkeypatch) -> None:
+    monkeypatch.setattr(lifecycle, "init_db", _noop)
+    monkeypatch.setattr(lifecycle, "run_migrations", _noop)
+    monkeypatch.setattr(lifecycle, "close_db", _noop)
+    monkeypatch.setattr(routes_signals, "SignalRepository", FakeSignalRepository)
+
+    app = create_app()
+    client = TestClient(app)
+
+    response = client.get("/signals/2")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["h4_structure"] == "BULLISH_CONTINUATION"
+    assert payload["h4_context_type"] == "CONTINUATION_TREND"
 
 
 def test_signal_history_returns_raw_block_history(monkeypatch) -> None:

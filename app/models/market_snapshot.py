@@ -17,8 +17,16 @@ class MarketSnapshot(BaseModel):
     price_at_end: float | None = None
     spread_points: float | None = None
 
+    range_low: float | None = None
+    range_high: float | None = None
+    pivot_mid: float | None = None
+    reclaim_level: float | None = None
+    breakdown_level: float | None = None
+    breakout_level: float | None = None
+
     d1_bias: str | None = None
     h4_structure: str | None = None
+    h4_context_type: str | None = None
     h1_phase: str | None = None
     m15_phase: str | None = None
     chart_bias: str | None = None
@@ -26,6 +34,8 @@ class MarketSnapshot(BaseModel):
 
     support_zone: str | None = None
     resistance_zone: str | None = None
+    nearest_supply_zone: str | None = None
+    nearest_demand_zone: str | None = None
     key_level: str | None = None
 
     raw_ohlc: dict | None = None

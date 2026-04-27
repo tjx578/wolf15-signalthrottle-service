@@ -122,8 +122,16 @@ CREATE TABLE IF NOT EXISTS signalthrottle.market_snapshots (
     price_at_end NUMERIC,
     spread_points NUMERIC,
 
+    range_low NUMERIC,
+    range_high NUMERIC,
+    pivot_mid NUMERIC,
+    reclaim_level NUMERIC,
+    breakdown_level NUMERIC,
+    breakout_level NUMERIC,
+
     d1_bias TEXT,
     h4_structure TEXT,
+    h4_context_type TEXT,
     h1_phase TEXT,
     m15_phase TEXT,
     chart_bias TEXT,
@@ -131,6 +139,8 @@ CREATE TABLE IF NOT EXISTS signalthrottle.market_snapshots (
 
     support_zone TEXT,
     resistance_zone TEXT,
+    nearest_supply_zone TEXT,
+    nearest_demand_zone TEXT,
     key_level TEXT,
 
     raw_ohlc JSONB,
@@ -185,6 +195,7 @@ CREATE TABLE IF NOT EXISTS signalthrottle.signal_outcomes (
     pressure_grade TEXT,
     execution_grade TEXT,
     chart_phase TEXT,
+    h4_context_type TEXT,
     execution_side TEXT,
 
     signal_end_utc TIMESTAMPTZ,
@@ -216,3 +227,6 @@ ON signalthrottle.signal_outcomes(symbol, signal_end_utc DESC);
 
 CREATE INDEX IF NOT EXISTS idx_st_signal_outcomes_phase_grade
 ON signalthrottle.signal_outcomes(chart_phase, pressure_grade, execution_grade);
+
+CREATE INDEX IF NOT EXISTS idx_st_signal_outcomes_h4_context
+ON signalthrottle.signal_outcomes(h4_context_type, result_label);

@@ -191,3 +191,53 @@ def test_build_plan_b_plus_with_actionable_phase_promoted_to_ready() -> None:
     assert result["signal_bucket"] == "ready"
     assert result["owner_alert"] is False
     assert result["reason_code"] == "PIVOT_RECLAIM_VALID"
+
+
+def test_build_plan_range_edge_compression_gets_downgraded_execution_grade() -> None:
+    block = {
+        "symbol": "USDJPY",
+        "pressure_grade": "A-",
+        "start_utc": "2026-04-24T02:30:34Z",
+        "end_utc": "2026-04-24T02:42:50Z",
+        "duration_minutes": 12.27,
+        "event_count": 95,
+        "density_per_minute": 7.74,
+    }
+    snapshot = {
+        "price_at_end": 159.42,
+        "chart_bias": "RANGE_OR_UPPER_PRESSURE",
+        "chart_phase": "UPPER_RANGE_EXHAUSTION_RISK",
+        "h4_context_type": "RANGE_EDGE_COMPRESSION",
+        "action": "PROTECT_LONG_OR_SELL_REJECTION",
+        "reason_code": "UPPER_RESISTANCE_REJECTION",
+    }
+
+    result = build_trade_plan(block, snapshot)
+
+    assert result["execution_grade"] == "B+"
+    assert result["h4_context_type"] == "RANGE_EDGE_COMPRESSION"
+
+
+def test_build_plan_failed_breakout_acceptance_keeps_stronger_grade() -> None:
+    block = {
+        "symbol": "USDJPY",
+        "pressure_grade": "A-",
+        "start_utc": "2026-04-24T02:30:34Z",
+        "end_utc": "2026-04-24T02:42:50Z",
+        "duration_minutes": 12.27,
+        "event_count": 95,
+        "density_per_minute": 7.74,
+    }
+    snapshot = {
+        "price_at_end": 159.42,
+        "chart_bias": "RANGE_OR_UPPER_PRESSURE",
+        "chart_phase": "UPPER_RANGE_EXHAUSTION_RISK",
+        "h4_context_type": "FAILED_BREAKOUT_ACCEPTANCE",
+        "action": "WAIT_BREAKOUT_OR_REJECTION",
+        "reason_code": "UPPER_RANGE_FAILED_EXPANSION",
+    }
+
+    result = build_trade_plan(block, snapshot)
+
+    assert result["execution_grade"] == "A"
+    assert result["h4_context_type"] == "FAILED_BREAKOUT_ACCEPTANCE"

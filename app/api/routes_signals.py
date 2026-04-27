@@ -7,6 +7,15 @@ from app.storage.repositories import SignalRepository
 router = APIRouter()
 
 
+def _public_signal_contract(row: dict) -> dict:
+    payload = row.get("payload") or {}
+    snapshot = payload.get("snapshot") or {}
+    public_row = dict(row)
+    public_row["h4_structure"] = row.get("h4_structure") or snapshot.get("h4_structure")
+    public_row["h4_context_type"] = row.get("h4_context_type") or snapshot.get("h4_context_type")
+    return public_row
+
+
 @router.get("/latest")
 async def latest_signals(limit: int = 20, bucket: str = "all"):
     repo = SignalRepository()
@@ -14,7 +23,19 @@ async def latest_signals(limit: int = 20, bucket: str = "all"):
     if normalized_bucket not in {"all", "failed", "radar", "watchlist", "ready", "highlighted", "actionable", "priority"}:
         normalized_bucket = "all"
     plans = await repo.get_latest_signals(limit=limit, bucket=normalized_bucket)
-    return {"count": len(plans), "bucket": normalized_bucket, "signals": plans}
+    public_plans = [_public_signal_contract(plan) for plan in plans]
+    return {"count": len(public_plans), "bucket": normalized_bucket, "signals": public_plans}
+
+
+@router.get("/trade-plans")
+async def latest_trade_plans(limit: int = 20, bucket: str = "all"):
+    repo = SignalRepository()
+    normalized_bucket = bucket.lower()
+    if normalized_bucket not in {"all", "watchlist", "actionable"}:
+        normalized_bucket = "all"
+    plans = await repo.get_latest_trade_plans(limit=limit, bucket=normalized_bucket)
+    public_plans = [_public_signal_contract(plan) for plan in plans]
+    return {"count": len(public_plans), "bucket": normalized_bucket, "trade_plans": public_plans}
 
 
 @router.get("/history")
@@ -52,4 +73,4 @@ async def signal_detail(signal_id: int):
             "signal_id": signal_id,
         }
 
-    return signal
+    return _public_signal_contract(signal)

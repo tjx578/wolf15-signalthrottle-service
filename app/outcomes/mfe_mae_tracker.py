@@ -131,12 +131,15 @@ class MFEMAETracker:
         )
 
         chart_phase = payload.get("chart_phase") or trade_plan.get("chart_phase")
+        snapshot = payload.get("snapshot") or {}
+        h4_context_type = payload.get("h4_context_type") or snapshot.get("h4_context_type") or trade_plan.get("h4_context_type")
 
         base_record: dict[str, Any] = {
             "symbol": symbol,
             "pressure_grade": trade_plan.get("pressure_grade"),
             "execution_grade": trade_plan.get("execution_grade"),
             "chart_phase": chart_phase,
+            "h4_context_type": h4_context_type,
             "execution_side": execution_side,
             "signal_end_utc": signal_end_utc,
             "price_at_signal": None,

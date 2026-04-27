@@ -132,6 +132,22 @@ def is_upper_rejection(candles: list[dict[str, Any]]) -> bool:
     return upper_wick / candle_range >= 0.35 and close < open_
 
 
+def is_lower_rejection(candles: list[dict[str, Any]]) -> bool:
+    if len(candles) < 3:
+        return False
+
+    candle = candles[-1]
+    open_ = float(candle["open"])
+    high = float(candle["high"])
+    low = float(candle["low"])
+    close = float(candle["close"])
+
+    candle_range = max(high - low, 1e-9)
+    lower_wick = min(open_, close) - low
+
+    return lower_wick / candle_range >= 0.35 and close > open_
+
+
 def is_breakdown_confirmation(snapshot: dict[str, Any]) -> bool:
     price = snapshot.get("price")
     support = snapshot.get("support")
@@ -179,9 +195,179 @@ def is_high_base_compression(snapshot: dict[str, Any]) -> bool:
     )
 
 
+def is_range_edge_compression(snapshot: dict[str, Any], *, edge: str) -> bool:
+    m15 = snapshot.get("m15", [])
+    if len(m15) < 8:
+        return False
+
+    recent = m15[-8:]
+    highs = [float(candle["high"]) for candle in recent]
+    lows = [float(candle["low"]) for candle in recent]
+    closes = [float(candle["close"]) for candle in recent]
+    total_range = max(highs) - min(lows)
+    if total_range <= 0:
+        return False
+
+    close_position = (closes[-1] - min(lows)) / total_range
+    is_compressed = total_range <= max(closes[-1] * 0.0025, 0.05)
+
+    if edge == "upper":
+        return bool(snapshot.get("near_resistance")) and is_compressed and close_position >= 0.7
+
+    return bool(snapshot.get("near_support")) and is_compressed and close_position <= 0.3
+
+
+def is_failed_upward_expansion(snapshot: dict[str, Any]) -> bool:
+    if not snapshot.get("near_resistance"):
+        return False
+
+    m15 = snapshot.get("m15", [])
+    breakout_level = snapshot.get("breakout_level") or snapshot.get("resistance")
+    if breakout_level is None or len(m15) < 5:
+        return False
+
+    recent = m15[-5:]
+    highs = [float(candle["high"]) for candle in recent]
+    closes = [float(candle["close"]) for candle in recent]
+    attempt_above_level = any(high >= breakout_level for high in highs)
+    failed_acceptance = closes[-1] < breakout_level and max(closes[-3:]) <= breakout_level
+    rollover = closes[-1] <= closes[-2] <= closes[-3]
+    return attempt_above_level and failed_acceptance and rollover
+
+
+def is_failed_downward_expansion(snapshot: dict[str, Any]) -> bool:
+    if not snapshot.get("near_support"):
+        return False
+
+    m15 = snapshot.get("m15", [])
+    breakdown_level = snapshot.get("breakdown_level") or snapshot.get("support")
+    if breakdown_level is None or len(m15) < 5:
+        return False
+
+    recent = m15[-5:]
+    lows = [float(candle["low"]) for candle in recent]
+    closes = [float(candle["close"]) for candle in recent]
+    attempt_below_level = any(low <= breakdown_level for low in lows)
+    failed_acceptance = closes[-1] > breakdown_level and min(closes[-3:]) >= breakdown_level
+    rebound = closes[-1] >= closes[-2] >= closes[-3]
+    return attempt_below_level and failed_acceptance and rebound
+
+
+def classify_h4_structure(snapshot: dict[str, Any]) -> str:
+    h4 = snapshot.get("h4", [])
+    h1 = snapshot.get("h1", [])
+    m15 = snapshot.get("m15", [])
+    close = last_close(h4)
+    ma20 = sma(h4, 20)
+    ma50 = sma(h4, 50)
+
+    if close is None or ma20 is None or ma50 is None:
+        return "UNCLASSIFIED"
+
+    if close > ma20 > ma50:
+        if snapshot.get("near_resistance") and (
+            is_failed_upward_expansion(snapshot)
+            or
+            is_upper_rejection(h4)
+            or is_upper_rejection(h1)
+            or is_upper_rejection(m15)
+            or is_range_edge_compression(snapshot, edge="upper")
+        ):
+            return "BULLISH_EXHAUSTION_RISK"
+        return "BULLISH_CONTINUATION"
+
+    if close < ma20 < ma50:
+        if snapshot.get("near_support") and (
+            is_failed_downward_expansion(snapshot)
+            or
+            is_lower_rejection(h4)
+            or is_lower_rejection(h1)
+            or is_lower_rejection(m15)
+            or is_range_edge_compression(snapshot, edge="lower")
+        ):
+            return "BEARISH_EXHAUSTION_RISK"
+        return "BEARISH_CONTINUATION"
+
+    return "RANGE_OR_TRANSITION"
+
+
+def classify_h4_context_type(snapshot: dict[str, Any], h4_structure: str) -> str:
+    h4 = snapshot.get("h4", [])
+    h1 = snapshot.get("h1", [])
+    m15 = snapshot.get("m15", [])
+
+    if h4_structure == "BULLISH_EXHAUSTION_RISK":
+        if is_failed_upward_expansion(snapshot):
+            return "FAILED_BREAKOUT_ACCEPTANCE"
+        if is_upper_rejection(h4) or is_upper_rejection(h1) or is_upper_rejection(m15):
+            return "TERMINAL_REJECTION"
+        if is_range_edge_compression(snapshot, edge="upper"):
+            return "RANGE_EDGE_COMPRESSION"
+        return "EXHAUSTION_RISK"
+
+    if h4_structure == "BEARISH_EXHAUSTION_RISK":
+        if is_failed_downward_expansion(snapshot):
+            return "FAILED_BREAKDOWN_ACCEPTANCE"
+        if is_lower_rejection(h4) or is_lower_rejection(h1) or is_lower_rejection(m15):
+            return "TERMINAL_REJECTION"
+        if is_range_edge_compression(snapshot, edge="lower"):
+            return "RANGE_EDGE_COMPRESSION"
+        return "EXHAUSTION_RISK"
+
+    if h4_structure == "BULLISH_CONTINUATION":
+        return "CONTINUATION_TREND"
+
+    if h4_structure == "BEARISH_CONTINUATION":
+        return "CONTINUATION_TREND"
+
+    return "RANGE_OR_TRANSITION"
+
+
+def _blocked_master_structure_result(
+    snapshot: dict[str, Any],
+    *,
+    d1_bias: str,
+    h4_structure: str,
+    reason_code: str,
+    entry_zone: str | None,
+    reclaim_level: float | str | None,
+    breakdown_level: float | str | None,
+    breakout_level: float | str | None,
+    message: str,
+) -> dict[str, Any]:
+    return _phase_result(
+        snapshot,
+        d1_bias=d1_bias,
+        h4_structure=h4_structure,
+        h1_phase="MASTER_STRUCTURE_CONFLICT",
+        m15_phase="MASTER_STRUCTURE_CONFLICT",
+        chart_bias="MASTER_STRUCTURE_CONFLICT",
+        chart_phase="RANGE_MID_NO_EDGE",
+        action="NO_TRADE_WAIT_CONTEXT",
+        entry_zone=entry_zone,
+        reclaim_level=reclaim_level,
+        breakdown_level=breakdown_level,
+        breakout_level=breakout_level,
+        invalidation=None,
+        tp1=None,
+        tp2=None,
+        tp3=None,
+        reason_code=reason_code,
+        primary_scenario=_scenario(
+            label="primary",
+            action="NO_TRADE_WAIT_CONTEXT",
+            trigger=message,
+            entry_zone=entry_zone,
+        ),
+        alternative_scenario=None,
+        no_trade_condition=message,
+    )
+
+
 def _base_phase_payload(snapshot: dict[str, Any]) -> dict[str, Any]:
     return {
         "d1_bias": classify_d1_bias(snapshot.get("d1", [])),
+        "h4_context_type": snapshot.get("h4_context_type"),
         "primary_scenario": None,
         "alternative_scenario": None,
         "no_trade_condition": None,
@@ -200,6 +386,7 @@ def classify_phase(snapshot: dict[str, Any]) -> dict[str, Any]:
     price = snapshot.get("price")
 
     d1 = snapshot.get("d1", [])
+    snapshot.get("h4", [])
     h1 = snapshot.get("h1", [])
     m15 = snapshot.get("m15", [])
 
@@ -207,6 +394,9 @@ def classify_phase(snapshot: dict[str, Any]) -> dict[str, Any]:
     near_resistance = bool(snapshot.get("near_resistance", False))
 
     d1_bias = classify_d1_bias(d1)
+    h4_structure = classify_h4_structure(snapshot)
+    h4_context_type = classify_h4_context_type(snapshot, h4_structure)
+    snapshot = {**snapshot, "h4_context_type": h4_context_type}
     h1_reclaim = is_bullish_reclaim(h1)
     m15_reclaim = is_bullish_reclaim(m15)
     h1_bearish_pullback = is_bearish_pullback(h1)
@@ -221,11 +411,50 @@ def classify_phase(snapshot: dict[str, Any]) -> dict[str, Any]:
     breakdown_level = snapshot.get("breakdown_level") or support
     breakout_level = snapshot.get("breakout_level") or resistance
 
+    if near_resistance and is_failed_upward_expansion(snapshot):
+        return _phase_result(
+            snapshot,
+            d1_bias=d1_bias,
+            h4_structure=h4_structure,
+            h1_phase="FAILED_EXPANSION",
+            m15_phase="FAILED_EXPANSION",
+            chart_bias="RANGE_OR_UPPER_PRESSURE",
+            chart_phase="UPPER_RANGE_EXHAUSTION_RISK",
+            action="WAIT_BREAKOUT_OR_REJECTION",
+            entry_zone=resistance_zone,
+            reclaim_level=reclaim_level,
+            breakout_level=breakout_level,
+            invalidation=format_price(symbol, resistance, 15, "above"),
+            tp1=None,
+            tp2=support_zone,
+            tp3=None,
+            reason_code="UPPER_RANGE_FAILED_EXPANSION",
+            primary_scenario=_scenario(
+                label="primary",
+                action="WAIT_BREAKOUT_OR_REJECTION",
+                trigger="Breakout attempts are failing to accept above upper range resistance",
+                entry_zone=resistance_zone,
+                invalidation=format_price(symbol, resistance, 15, "above"),
+                tp2=support_zone,
+            ),
+            alternative_scenario=_scenario(
+                label="alternative",
+                action="PROTECT_LONG_OR_SELL_REJECTION",
+                trigger="If failed expansion turns into clear rejection, pivot to sell rejection setup",
+                entry_zone=resistance_zone,
+                invalidation=format_price(symbol, resistance, 15, "above"),
+                tp1=format_price(symbol, price, 20, "below"),
+                tp2=support_zone,
+                tp3=format_price(symbol, price, 50, "below"),
+            ),
+            no_trade_condition="No long continuation while upper-range breakout keeps failing to expand and accept.",
+        )
+
     if near_resistance and m15_rejection:
         return _phase_result(
             snapshot,
             d1_bias=d1_bias,
-            h4_structure="UPPER_RANGE",
+            h4_structure=h4_structure,
             h1_phase="RESISTANCE_RETEST",
             m15_phase="REJECTION",
             chart_bias="RANGE_OR_UPPER_PRESSURE",
@@ -266,7 +495,7 @@ def classify_phase(snapshot: dict[str, Any]) -> dict[str, Any]:
         return _phase_result(
             snapshot,
             d1_bias=d1_bias,
-            h4_structure="UPPER_RANGE",
+            h4_structure=h4_structure,
             h1_phase="RESISTANCE_RETEST",
             m15_phase="DISTRIBUTION",
             chart_bias="RANGE_OR_UPPER_PRESSURE",
@@ -304,7 +533,7 @@ def classify_phase(snapshot: dict[str, Any]) -> dict[str, Any]:
         return _phase_result(
             snapshot,
             d1_bias=d1_bias,
-            h4_structure="FAILED_RECLAIM",
+            h4_structure=h4_structure,
             h1_phase="FAILED_RECLAIM",
             m15_phase="FAILED_RECLAIM",
             chart_bias="TRANSITION_AFTER_FAILED_RECLAIM",
@@ -341,11 +570,24 @@ def classify_phase(snapshot: dict[str, Any]) -> dict[str, Any]:
             no_trade_condition="No trade if price remains trapped between pivot and support without clear failure or reclaim.",
         )
 
+    if (h1_reclaim or m15_reclaim) and h4_structure == "BEARISH_CONTINUATION":
+        return _blocked_master_structure_result(
+            snapshot,
+            d1_bias=d1_bias,
+            h4_structure=h4_structure,
+            reason_code="H4_BEARISH_MASTER_STRUCTURE",
+            entry_zone=support_zone,
+            reclaim_level=reclaim_level,
+            breakdown_level=breakdown_level,
+            breakout_level=breakout_level,
+            message="Bullish reclaim is blocked because H4 master structure is still bearish continuation.",
+        )
+
     if (h1_reclaim or m15_reclaim) and not near_resistance:
         return _phase_result(
             snapshot,
             d1_bias=d1_bias,
-            h4_structure="PIVOT_RECLAIM",
+            h4_structure=h4_structure,
             h1_phase="RECLAIM",
             m15_phase="RECLAIM_CONTINUATION",
             chart_bias=d1_bias,
@@ -380,11 +622,24 @@ def classify_phase(snapshot: dict[str, Any]) -> dict[str, Any]:
             no_trade_condition="Avoid entry if reclaim loses pivot and slips back into range mid.",
         )
 
+    if is_high_base_compression(snapshot) and h4_structure == "BEARISH_CONTINUATION" and not near_resistance:
+        return _blocked_master_structure_result(
+            snapshot,
+            d1_bias=d1_bias,
+            h4_structure=h4_structure,
+            reason_code="H4_BEARISH_MASTER_STRUCTURE",
+            entry_zone=support_zone,
+            reclaim_level=reclaim_level,
+            breakdown_level=breakdown_level,
+            breakout_level=breakout_level,
+            message="Bullish compression setup is blocked because H4 master structure is still bearish continuation.",
+        )
+
     if is_high_base_compression(snapshot) and not near_resistance:
         return _phase_result(
             snapshot,
             d1_bias=d1_bias,
-            h4_structure="HIGH_BASE_COMPRESSION",
+            h4_structure=h4_structure,
             h1_phase="COMPRESSION",
             m15_phase="COMPRESSION",
             chart_bias=d1_bias,
@@ -418,11 +673,24 @@ def classify_phase(snapshot: dict[str, Any]) -> dict[str, Any]:
             no_trade_condition="No trade if breakout has not yet resolved the compression range.",
         )
 
+    if is_breakdown_confirmation(snapshot) and h4_structure == "BULLISH_CONTINUATION":
+        return _blocked_master_structure_result(
+            snapshot,
+            d1_bias=d1_bias,
+            h4_structure=h4_structure,
+            reason_code="H4_BULLISH_MASTER_STRUCTURE",
+            entry_zone=resistance_zone,
+            reclaim_level=reclaim_level,
+            breakdown_level=breakdown_level,
+            breakout_level=breakout_level,
+            message="Bearish breakdown is blocked because H4 master structure is still bullish continuation.",
+        )
+
     if is_breakdown_confirmation(snapshot):
         return _phase_result(
             snapshot,
             d1_bias=d1_bias,
-            h4_structure="BREAKDOWN",
+            h4_structure=h4_structure,
             h1_phase="BREAKDOWN",
             m15_phase="BREAKDOWN_CONFIRMATION",
             chart_bias="BEARISH_BREAKDOWN",
@@ -455,11 +723,24 @@ def classify_phase(snapshot: dict[str, Any]) -> dict[str, Any]:
             no_trade_condition="No trade while the breakdown has not yet confirmed with a close below support.",
         )
 
+    if (h1_bearish_pullback or m15_bearish_pullback) and h4_structure == "BULLISH_CONTINUATION" and not near_support:
+        return _blocked_master_structure_result(
+            snapshot,
+            d1_bias=d1_bias,
+            h4_structure=h4_structure,
+            reason_code="H4_BULLISH_MASTER_STRUCTURE",
+            entry_zone=resistance_zone,
+            reclaim_level=reclaim_level,
+            breakdown_level=breakdown_level,
+            breakout_level=breakout_level,
+            message="Bearish pullback continuation is blocked because H4 master structure is still bullish continuation.",
+        )
+
     if (h1_bearish_pullback or m15_bearish_pullback) and not near_support:
         return _phase_result(
             snapshot,
             d1_bias=d1_bias,
-            h4_structure="PULLBACK_AFTER_RALLY",
+            h4_structure=h4_structure,
             h1_phase="BEARISH_PULLBACK",
             m15_phase="PULLBACK_CONTINUATION",
             chart_bias="TRANSITION_AFTER_RALLY",
@@ -493,10 +774,15 @@ def classify_phase(snapshot: dict[str, Any]) -> dict[str, Any]:
         )
 
     if near_support:
+        support_reason_code = (
+            "LOWER_RANGE_FAILED_EXPANSION"
+            if is_failed_downward_expansion(snapshot)
+            else "SUPPORT_DECISION_PENDING"
+        )
         return _phase_result(
             snapshot,
             d1_bias=d1_bias,
-            h4_structure="SUPPORT_TEST",
+            h4_structure=h4_structure,
             h1_phase="SUPPORT_DECISION",
             m15_phase="SUPPORT_DECISION",
             chart_bias="SUPPORT_TEST",
@@ -509,7 +795,7 @@ def classify_phase(snapshot: dict[str, Any]) -> dict[str, Any]:
             tp1=None,
             tp2=None,
             tp3=None,
-            reason_code="SUPPORT_DECISION_PENDING",
+            reason_code=support_reason_code,
             primary_scenario=_scenario(
                 label="primary",
                 action="WAIT_SUPPORT_REACTION_OR_RECLAIM",
@@ -528,7 +814,7 @@ def classify_phase(snapshot: dict[str, Any]) -> dict[str, Any]:
     return _phase_result(
         snapshot,
         d1_bias=d1_bias,
-        h4_structure="RANGE",
+        h4_structure=h4_structure,
         h1_phase="MID_RANGE",
         m15_phase="MID_RANGE",
         chart_bias="UNCLASSIFIED",

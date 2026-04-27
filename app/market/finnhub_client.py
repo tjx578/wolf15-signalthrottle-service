@@ -5,8 +5,10 @@ from typing import Any
 
 import httpx
 
+from app.market.ohlc_provider_base import OHLCProviderBase
 
-class FinnhubClient:
+
+class FinnhubClient(OHLCProviderBase):
     RESOLUTION = {
         "M15": "15",
         "H1": "60",

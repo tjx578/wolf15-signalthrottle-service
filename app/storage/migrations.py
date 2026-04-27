@@ -36,6 +36,7 @@ async def run_migrations() -> list[dict]:
         _migration_006_ensure_pressure_blocks_block_hash,
         _migration_007_ensure_block_pending_reason_columns,
         _migration_008_ensure_trade_plans_reason_code,
+        _migration_009_backfill_signal_outcomes_h4_context_type,
     ]
     results: list[dict] = []
     for m in migrations:
@@ -176,14 +177,23 @@ async def _migration_002_ensure_phase2_columns() -> None:
         ("price_at_start", "NUMERIC"),
         ("price_at_end", "NUMERIC"),
         ("spread_points", "NUMERIC"),
+        ("range_low", "NUMERIC"),
+        ("range_high", "NUMERIC"),
+        ("pivot_mid", "NUMERIC"),
+        ("reclaim_level", "NUMERIC"),
+        ("breakdown_level", "NUMERIC"),
+        ("breakout_level", "NUMERIC"),
         ("d1_bias", "TEXT"),
         ("h4_structure", "TEXT"),
+        ("h4_context_type", "TEXT"),
         ("h1_phase", "TEXT"),
         ("m15_phase", "TEXT"),
         ("chart_bias", "TEXT"),
         ("chart_phase", "TEXT"),
         ("support_zone", "TEXT"),
         ("resistance_zone", "TEXT"),
+        ("nearest_supply_zone", "TEXT"),
+        ("nearest_demand_zone", "TEXT"),
         ("key_level", "TEXT"),
         ("raw_ohlc", "JSONB"),
     ]
@@ -276,6 +286,7 @@ async def _migration_004_ensure_signal_outcomes_columns() -> None:
         ("pressure_grade", "TEXT"),
         ("execution_grade", "TEXT"),
         ("chart_phase", "TEXT"),
+        ("h4_context_type", "TEXT"),
         ("execution_side", "TEXT"),
         ("signal_end_utc", "TIMESTAMPTZ"),
         ("price_at_signal", "NUMERIC"),
@@ -310,6 +321,11 @@ async def _migration_004_ensure_signal_outcomes_columns() -> None:
         "idx_st_signal_outcomes_phase_grade",
         "signal_outcomes",
         "chart_phase, pressure_grade, execution_grade",
+    )
+    await _ensure_index(
+        "idx_st_signal_outcomes_h4_context",
+        "signal_outcomes",
+        "h4_context_type, result_label",
     )
     logger.info("migration_004: signal_outcomes columns ensured")
 
@@ -421,3 +437,43 @@ async def _migration_007_ensure_block_pending_reason_columns() -> None:
 async def _migration_008_ensure_trade_plans_reason_code() -> None:
     await _ensure_column("trade_plans", "reason_code", "TEXT")
     logger.info("migration_008: trade_plans.reason_code ensured")
+
+
+async def _migration_009_backfill_signal_outcomes_h4_context_type() -> None:
+    await _ensure_column("signal_outcomes", "h4_context_type", "TEXT")
+
+    async with get_cursor() as cur:
+        await cur.execute(
+            sql.SQL(
+                """
+                WITH latest_snapshot AS (
+                    SELECT DISTINCT ON (block_id)
+                           block_id,
+                           h4_context_type
+                    FROM {}
+                    WHERE h4_context_type IS NOT NULL
+                    ORDER BY block_id, created_at DESC
+                )
+                UPDATE {} so
+                SET h4_context_type = COALESCE(
+                    latest_snapshot.h4_context_type,
+                    tp.payload -> 'snapshot' ->> 'h4_context_type'
+                ),
+                updated_at = NOW()
+                FROM {} tp
+                LEFT JOIN latest_snapshot ON latest_snapshot.block_id = tp.block_id
+                WHERE so.trade_plan_id = tp.id
+                  AND so.h4_context_type IS NULL
+                  AND COALESCE(
+                        latest_snapshot.h4_context_type,
+                        tp.payload -> 'snapshot' ->> 'h4_context_type'
+                  ) IS NOT NULL
+                """
+            ).format(
+                sql.Identifier(settings.db_schema, "market_snapshots"),
+                sql.Identifier(settings.db_schema, "signal_outcomes"),
+                sql.Identifier(settings.db_schema, "trade_plans"),
+            )
+        )
+
+    logger.info("migration_009: signal_outcomes.h4_context_type backfilled from latest snapshots/trade plan payload")

@@ -27,6 +27,13 @@ WAIT_ACTIONS = {
     "WAIT",
 }
 
+GRADE_DOWNGRADE = {
+    "A": "B+",
+    "B+": "B",
+    "B": "C",
+    "C": "C",
+}
+
 
 def _is_wait_action(action: str) -> bool:
     """An action counts as 'wait' if it is in WAIT_ACTIONS or starts with the
@@ -39,23 +46,36 @@ def _is_wait_action(action: str) -> bool:
     return action.startswith("WAIT_") or action.startswith("NO_TRADE")
 
 
-def grade_execution(pressure_grade: str, chart_phase: str) -> str:
+def _apply_h4_context_to_grade(base_grade: str, h4_context_type: str | None) -> str:
+    # Range-edge compression is a weaker exhaustion subtype than failed
+    # breakout/breakdown acceptance or terminal rejection, so it gets a one-step
+    # downgrade in execution quality.
+    if h4_context_type == "RANGE_EDGE_COMPRESSION":
+        return GRADE_DOWNGRADE.get(base_grade, base_grade)
+    return base_grade
+
+
+def grade_execution(
+    pressure_grade: str,
+    chart_phase: str,
+    h4_context_type: str | None = None,
+) -> str:
     if chart_phase in STRONG_PHASES:
         if pressure_grade in {"A+", "A", "A-"}:
-            return "A"
+            return _apply_h4_context_to_grade("A", h4_context_type)
         if pressure_grade == "B+":
-            return "B+"
+            return _apply_h4_context_to_grade("B+", h4_context_type)
 
     if chart_phase in DECISION_PHASES:
         if pressure_grade in {"A+", "A", "A-"}:
-            return "B+"
+            return _apply_h4_context_to_grade("B+", h4_context_type)
         if pressure_grade == "B+":
-            return "B"
+            return _apply_h4_context_to_grade("B", h4_context_type)
 
     if chart_phase == "RANGE_MID_NO_EDGE":
         return "C"
 
-    return "B"
+    return _apply_h4_context_to_grade("B", h4_context_type)
 
 
 def map_execution_side(chart_phase: str) -> str:
@@ -119,8 +139,9 @@ def build_trade_plan(block: dict[str, Any], snapshot: dict[str, Any]) -> dict[st
     pressure_grade = block["pressure_grade"]
     chart_phase = snapshot["chart_phase"]
     action = snapshot["action"]
+    h4_context_type = snapshot.get("h4_context_type")
 
-    execution_grade = grade_execution(pressure_grade, chart_phase)
+    execution_grade = grade_execution(pressure_grade, chart_phase, h4_context_type)
     execution_side = map_execution_side(chart_phase)
 
     # Canonical rule: any B+/A-/A/A+ block that has reached this point HAS a
@@ -184,6 +205,7 @@ def build_trade_plan(block: dict[str, Any], snapshot: dict[str, Any]) -> dict[st
         "price_at_signal_end": price_text,
         "chart_bias": snapshot["chart_bias"],
         "chart_phase": chart_phase,
+        "h4_context_type": h4_context_type,
         "action": action,
         "reason_code": reason_code,
         "entry_zone": snapshot.get("entry_zone"),

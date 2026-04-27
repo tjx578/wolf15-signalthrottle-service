@@ -65,6 +65,7 @@
         <tr>
           <th>Symbol</th>
           <th>Pressure</th>
+          <th>H4</th>
           <th>Reason</th>
           <th>Duration (m)</th>
           <th>Events</th>
@@ -78,6 +79,7 @@
         <tr>
           <td class="symbol"><a href="/series-detail/{{ s.symbol }}">{{ s.symbol }}</a></td>
           <td><span class="badge">{{ s.pressure_grade }}</span></td>
+          <td>{{ s.h4_structure or '-' }}</td>
           <td>{{ s.reason_code or '-' }}</td>
           <td>{{ s.duration_minutes }}</td>
           <td>{{ s.event_count }}</td>
@@ -104,6 +106,7 @@
           <th>Symbol</th>
           <th>Pressure</th>
           <th>Exec</th>
+          <th>H4</th>
           <th>Phase</th>
           <th>Action</th>
           <th>Reason</th>
@@ -122,6 +125,7 @@
           </td>
           <td><span class="badge">{{ s.pressure_grade }}</span></td>
           <td><span class="badge">{{ s.execution_grade or 'PENDING' }}</span></td>
+          <td>{{ s.h4_structure or '-' }}</td>
           <td>{{ s.chart_phase or s.market_context_status or '-' }}</td>
           <td>{{ s.action or s.trade_plan_status or 'TRADE_PLAN_REQUIRED' }}</td>
           <td>{{ s.reason_code or '-' }}</td>
@@ -150,6 +154,7 @@
           <th>Symbol</th>
           <th>Pressure</th>
           <th>Exec</th>
+          <th>H4</th>
           <th>Phase</th>
           <th>Action</th>
           <th>Reason</th>
@@ -168,6 +173,7 @@
           </td>
           <td><span class="badge">{{ s.pressure_grade }}</span></td>
           <td><span class="badge">{{ s.execution_grade or 'PENDING' }}</span></td>
+          <td>{{ s.h4_structure or '-' }}</td>
           <td>{{ s.chart_phase or s.market_context_status or '-' }}</td>
           <td>{{ s.action or s.trade_plan_status or 'TRADE_PLAN_PENDING' }}</td>
           <td>{{ s.reason_code or '-' }}</td>
@@ -212,6 +218,14 @@
     <div class="card">
       <span class="label">Worst Phase</span>
       <strong>{{ outcome_summary.worst_phase or '-' }}</strong>
+    </div>
+    <div class="card">
+      <span class="label">Best H4 Context</span>
+      <strong>{{ outcome_summary.best_h4_context_type or '-' }}</strong>
+    </div>
+    <div class="card">
+      <span class="label">Worst H4 Context</span>
+      <strong>{{ outcome_summary.worst_h4_context_type or '-' }}</strong>
     </div>
   </div>
 </section>
@@ -283,6 +297,70 @@
 </section>
 
 <section class="panel">
+  <h2>Performance by H4 Context</h2>
+  {% if outcomes_by_h4_context %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>H4 Context</th>
+          <th>Count</th>
+          <th>Strong %</th>
+          <th>Avg MFE 30m</th>
+          <th>Avg MAE 30m</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in outcomes_by_h4_context %}
+        <tr>
+          <td>{{ r.h4_context_type or '-' }}</td>
+          <td>{{ r.count }}</td>
+          <td>{{ r.strong_pct }}%</td>
+          <td>{{ '%.4f' % r.avg_mfe_30m }}</td>
+          <td>{{ '%.4f' % r.avg_mae_30m }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No H4 context outcome data yet</p>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <h2>Performance by Reason Code</h2>
+  {% if outcomes_by_reason_code %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Reason Code</th>
+          <th>Count</th>
+          <th>Strong %</th>
+          <th>Avg MFE 30m</th>
+          <th>Avg MAE 30m</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in outcomes_by_reason_code %}
+        <tr>
+          <td>{{ r.reason_code or '-' }}</td>
+          <td>{{ r.count }}</td>
+          <td>{{ r.strong_pct }}%</td>
+          <td>{{ '%.4f' % r.avg_mfe_30m }}</td>
+          <td>{{ '%.4f' % r.avg_mae_30m }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No reason-code outcome data yet</p>
+  {% endif %}
+</section>
+
+<section class="panel">
   <h2>Latest Outcomes</h2>
   {% if latest_outcomes %}
   <div class="table-wrap">
@@ -291,6 +369,7 @@
         <tr>
           <th>Symbol</th>
           <th>Phase</th>
+          <th>H4 Context</th>
           <th>Side</th>
           <th>Entry</th>
           <th>MFE 30m</th>
@@ -303,6 +382,7 @@
         <tr>
           <td class="symbol">{{ o.symbol }}</td>
           <td>{{ o.chart_phase or '-' }}</td>
+          <td>{{ o.h4_context_type or '-' }}</td>
           <td>{{ o.execution_side or '-' }}</td>
           <td>{{ o.price_at_signal or '-' }}</td>
           <td>{{ o.mfe_30m if o.mfe_30m is not none else '-' }}</td>

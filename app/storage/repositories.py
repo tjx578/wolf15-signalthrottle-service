@@ -721,6 +721,19 @@ class SignalRepository:
         async with get_cursor() as cur:
             await cur.execute(
                 """
+                SELECT *
+                FROM market_snapshots
+                WHERE block_id = %s
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (series["latest_block_id"],),
+            )
+            latest_snapshot = await cur.fetchone()
+
+        async with get_cursor() as cur:
+            await cur.execute(
+                """
                 SELECT
                     pb.*,
                     tp.id AS trade_plan_id,
@@ -750,6 +763,7 @@ class SignalRepository:
 
         return {
             "series": series,
+            "latest_snapshot": latest_snapshot,
             "blocks": blocks,
             "trade_plan": trade_plan,
         }
@@ -819,10 +833,19 @@ class SignalRepository:
                     SELECT tp.*, pb.start_wita AS signal_start_wita,
                            pb.end_wita AS signal_end_wita,
                            pb.duration_minutes, pb.event_count,
-                           pb.density_per_minute
+                           pb.density_per_minute,
+                           ms.h4_structure,
+                           ms.h4_context_type
                     FROM trade_plans tp
                     LEFT JOIN pressure_blocks pb ON tp.block_id = pb.id
-                                        WHERE tp.execution_grade IN ('A+', 'A')
+                    LEFT JOIN LATERAL (
+                        SELECT h4_structure, h4_context_type
+                        FROM market_snapshots ms
+                        WHERE ms.block_id = pb.id
+                        ORDER BY ms.created_at DESC
+                        LIMIT 1
+                    ) ms ON TRUE
+                    WHERE tp.execution_grade IN ('A+', 'A')
                       AND tp.action <> 'NO_TRADE_WAIT_CONTEXT'
                     ORDER BY tp.created_at DESC
                     LIMIT %s
@@ -835,10 +858,19 @@ class SignalRepository:
                     SELECT tp.*, pb.start_wita AS signal_start_wita,
                            pb.end_wita AS signal_end_wita,
                            pb.duration_minutes, pb.event_count,
-                           pb.density_per_minute
+                           pb.density_per_minute,
+                           ms.h4_structure,
+                           ms.h4_context_type
                     FROM trade_plans tp
                     LEFT JOIN pressure_blocks pb ON tp.block_id = pb.id
-                          WHERE tp.execution_grade IN ('B', 'B+', 'C')
+                    LEFT JOIN LATERAL (
+                        SELECT h4_structure, h4_context_type
+                        FROM market_snapshots ms
+                        WHERE ms.block_id = pb.id
+                        ORDER BY ms.created_at DESC
+                        LIMIT 1
+                    ) ms ON TRUE
+                    WHERE tp.execution_grade IN ('B', 'B+', 'C')
                        OR tp.action = 'NO_TRADE_WAIT_CONTEXT'
                        OR tp.pressure_status = 'WATCHLIST_PRESSURE'
                     ORDER BY tp.created_at DESC
@@ -852,9 +884,18 @@ class SignalRepository:
                     SELECT tp.*, pb.start_wita AS signal_start_wita,
                            pb.end_wita AS signal_end_wita,
                            pb.duration_minutes, pb.event_count,
-                           pb.density_per_minute
+                           pb.density_per_minute,
+                           ms.h4_structure,
+                           ms.h4_context_type
                     FROM trade_plans tp
                     LEFT JOIN pressure_blocks pb ON tp.block_id = pb.id
+                    LEFT JOIN LATERAL (
+                        SELECT h4_structure, h4_context_type
+                        FROM market_snapshots ms
+                        WHERE ms.block_id = pb.id
+                        ORDER BY ms.created_at DESC
+                        LIMIT 1
+                    ) ms ON TRUE
                     ORDER BY tp.created_at DESC
                     LIMIT %s
                     """,
@@ -906,6 +947,8 @@ class SignalRepository:
                     pb.is_active,
                     tp.execution_grade,
                     tp.execution_side,
+                    ms.h4_structure,
+                    ms.h4_context_type,
                     COALESCE(tp.chart_phase, ms.chart_phase) AS chart_phase,
                     COALESCE(
                         tp.reason_code,
@@ -971,7 +1014,7 @@ class SignalRepository:
                     LIMIT 1
                 ) tp ON TRUE
                 LEFT JOIN LATERAL (
-                    SELECT chart_phase
+                    SELECT chart_phase, h4_structure, h4_context_type
                     FROM market_snapshots ms
                     WHERE ms.block_id = pb.id
                     ORDER BY ms.created_at DESC
@@ -996,9 +1039,18 @@ class SignalRepository:
                 """
                 SELECT tp.*, pb.*,
                        tp.id AS trade_plan_id,
-                       pb.id AS block_id
+                       pb.id AS block_id,
+                       ms.h4_structure,
+                       ms.h4_context_type
                 FROM trade_plans tp
                 LEFT JOIN pressure_blocks pb ON tp.block_id = pb.id
+                LEFT JOIN LATERAL (
+                    SELECT h4_structure, h4_context_type
+                    FROM market_snapshots ms
+                    WHERE ms.block_id = pb.id
+                    ORDER BY ms.created_at DESC
+                    LIMIT 1
+                ) ms ON TRUE
                 WHERE tp.id = %s
                 """,
                 (plan_id,),
@@ -1123,10 +1175,14 @@ class SignalRepository:
                 INSERT INTO market_snapshots
                     (block_id, symbol, signal_start_utc, signal_end_utc,
                      price_at_start, price_at_end, spread_points,
-                     d1_bias, h4_structure, h1_phase, m15_phase,
+                     range_low, range_high, pivot_mid,
+                     reclaim_level, breakdown_level, breakout_level,
+                     d1_bias, h4_structure, h4_context_type, h1_phase, m15_phase,
                      chart_bias, chart_phase,
-                     support_zone, resistance_zone, key_level, raw_ohlc)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
+                     support_zone, resistance_zone,
+                     nearest_supply_zone, nearest_demand_zone,
+                     key_level, raw_ohlc)
+                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
                 RETURNING id
                 """,
                 (
@@ -1137,14 +1193,23 @@ class SignalRepository:
                     snapshot.get("price_at_start"),
                     snapshot.get("price_at_end"),
                     snapshot.get("spread_points"),
+                    snapshot.get("range_low"),
+                    snapshot.get("range_high"),
+                    snapshot.get("pivot_mid"),
+                    snapshot.get("reclaim_level"),
+                    snapshot.get("breakdown_level"),
+                    snapshot.get("breakout_level"),
                     snapshot.get("d1_bias"),
                     snapshot.get("h4_structure"),
+                    snapshot.get("h4_context_type"),
                     snapshot.get("h1_phase"),
                     snapshot.get("m15_phase"),
                     snapshot.get("chart_bias"),
                     snapshot.get("chart_phase"),
                     snapshot.get("support_zone"),
                     snapshot.get("resistance_zone"),
+                    snapshot.get("nearest_supply_zone"),
+                    snapshot.get("nearest_demand_zone"),
                     snapshot.get("key_level"),
                     _json_or_none(snapshot.get("raw_ohlc")),
                 ),
@@ -1162,14 +1227,15 @@ class SignalRepository:
                 SELECT tp.*,
                        pb.end_utc AS signal_end_utc,
                        ms.chart_phase AS chart_phase,
-                       ms.price_at_end AS price_at_end
+                      ms.price_at_end AS price_at_end,
+                      ms.h4_context_type AS h4_context_type
                 FROM trade_plans tp
                 LEFT JOIN signal_outcomes so
                   ON so.trade_plan_id = tp.id
                 LEFT JOIN pressure_blocks pb
                   ON pb.id = tp.block_id
                 LEFT JOIN LATERAL (
-                    SELECT chart_phase, price_at_end
+                    SELECT chart_phase, price_at_end, h4_context_type
                     FROM market_snapshots
                     WHERE market_snapshots.block_id = tp.block_id
                     ORDER BY created_at DESC
@@ -1194,6 +1260,7 @@ class SignalRepository:
             "pressure_grade": result.get("pressure_grade"),
             "execution_grade": result.get("execution_grade"),
             "chart_phase": result.get("chart_phase"),
+            "h4_context_type": result.get("h4_context_type"),
             "execution_side": result.get("execution_side"),
             "signal_end_utc": result.get("signal_end_utc"),
             "price_at_signal": result.get("price_at_signal"),
@@ -1215,14 +1282,14 @@ class SignalRepository:
                 """
                 INSERT INTO signal_outcomes (
                     trade_plan_id, symbol, pressure_grade, execution_grade,
-                    chart_phase, execution_side, signal_end_utc, price_at_signal,
+                    chart_phase, h4_context_type, execution_side, signal_end_utc, price_at_signal,
                     price_after_15m, price_after_30m, price_after_60m,
                     mfe_15m, mae_15m, mfe_30m, mae_30m, mfe_60m, mae_60m,
                     result_label, raw_result, updated_at
                 )
                 VALUES (
                     %(trade_plan_id)s, %(symbol)s, %(pressure_grade)s, %(execution_grade)s,
-                    %(chart_phase)s, %(execution_side)s, %(signal_end_utc)s, %(price_at_signal)s,
+                    %(chart_phase)s, %(h4_context_type)s, %(execution_side)s, %(signal_end_utc)s, %(price_at_signal)s,
                     %(price_after_15m)s, %(price_after_30m)s, %(price_after_60m)s,
                     %(mfe_15m)s, %(mae_15m)s, %(mfe_30m)s, %(mae_30m)s, %(mfe_60m)s, %(mae_60m)s,
                     %(result_label)s, %(raw_result)s::jsonb, NOW()
@@ -1232,6 +1299,7 @@ class SignalRepository:
                     pressure_grade = EXCLUDED.pressure_grade,
                     execution_grade = EXCLUDED.execution_grade,
                     chart_phase = EXCLUDED.chart_phase,
+                    h4_context_type = EXCLUDED.h4_context_type,
                     execution_side = EXCLUDED.execution_side,
                     signal_end_utc = EXCLUDED.signal_end_utc,
                     price_at_signal = EXCLUDED.price_at_signal,
@@ -1311,6 +1379,18 @@ class SignalRepository:
             )
             phase_rows = await cur.fetchall()
 
+            await cur.execute(
+                """
+                SELECT h4_context_type,
+                       COUNT(*) AS cnt,
+                       COUNT(*) FILTER (WHERE result_label = 'FOLLOW_THROUGH_STRONG') AS strong
+                FROM signal_outcomes
+                WHERE h4_context_type IS NOT NULL
+                GROUP BY h4_context_type
+                """
+            )
+            h4_context_rows = await cur.fetchall()
+
             best_phase = None
             worst_phase = None
             best_pct = -1.0
@@ -1327,6 +1407,22 @@ class SignalRepository:
                     worst_pct = pct
                     worst_phase = r.get("chart_phase")
 
+            best_h4_context_type = None
+            worst_h4_context_type = None
+            best_h4_pct = -1.0
+            worst_h4_pct = 101.0
+            for r in h4_context_rows:
+                cnt = int(r.get("cnt") or 0)
+                if cnt < 3:
+                    continue
+                pct = (int(r.get("strong") or 0) / cnt) * 100.0
+                if pct > best_h4_pct:
+                    best_h4_pct = pct
+                    best_h4_context_type = r.get("h4_context_type")
+                if pct < worst_h4_pct:
+                    worst_h4_pct = pct
+                    worst_h4_context_type = r.get("h4_context_type")
+
             return {
                 "total": total,
                 "strong_pct": round(strong_pct, 2),
@@ -1334,6 +1430,8 @@ class SignalRepository:
                 "avg_mae_30m": float(row.get("avg_mae_30m") or 0),
                 "best_phase": best_phase,
                 "worst_phase": worst_phase,
+                "best_h4_context_type": best_h4_context_type,
+                "worst_h4_context_type": worst_h4_context_type,
             }
 
     async def get_outcomes_by_phase(self) -> list[dict]:
@@ -1353,6 +1451,52 @@ class SignalRepository:
             )
             rows = await cur.fetchall()
             return [_phase_grade_row(r, key="chart_phase") for r in rows]
+
+    async def get_outcomes_by_h4_context_type(self) -> list[dict]:
+        async with get_cursor() as cur:
+            await cur.execute(
+                """
+                SELECT h4_context_type,
+                       COUNT(*) AS count,
+                       COUNT(*) FILTER (WHERE result_label = 'FOLLOW_THROUGH_STRONG') AS strong_count,
+                       AVG(mfe_30m) AS avg_mfe_30m,
+                       AVG(mae_30m) AS avg_mae_30m
+                FROM signal_outcomes
+                WHERE h4_context_type IS NOT NULL
+                GROUP BY h4_context_type
+                ORDER BY count DESC
+                """
+            )
+            rows = await cur.fetchall()
+            return [_phase_grade_row(r, key="h4_context_type") for r in rows]
+
+    async def get_outcomes_by_reason_code(self) -> list[dict]:
+        async with get_cursor() as cur:
+            await cur.execute(
+                """
+                SELECT COALESCE(
+                           tp.reason_code,
+                           so.raw_result ->> 'reason_code'
+                       ) AS reason_code,
+                       COUNT(*) AS count,
+                       COUNT(*) FILTER (WHERE so.result_label = 'FOLLOW_THROUGH_STRONG') AS strong_count,
+                       AVG(so.mfe_30m) AS avg_mfe_30m,
+                       AVG(so.mae_30m) AS avg_mae_30m
+                FROM signal_outcomes so
+                LEFT JOIN trade_plans tp ON tp.id = so.trade_plan_id
+                WHERE COALESCE(
+                          tp.reason_code,
+                          so.raw_result ->> 'reason_code'
+                      ) IS NOT NULL
+                GROUP BY COALESCE(
+                             tp.reason_code,
+                             so.raw_result ->> 'reason_code'
+                         )
+                ORDER BY count DESC, reason_code ASC
+                """
+            )
+            rows = await cur.fetchall()
+            return [_phase_grade_row(r, key="reason_code") for r in rows]
 
     async def get_outcomes_by_grade(self) -> list[dict]:
         async with get_cursor() as cur:

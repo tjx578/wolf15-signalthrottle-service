@@ -3,8 +3,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from app.market.finnhub_client import FinnhubClient
 from app.market.level_detector import detect_levels
+from app.market.ohlc_provider_base import OHLCProviderBase
 from app.market.phase_classifier import classify_phase
 
 
@@ -20,7 +20,7 @@ def find_candle_at_or_before(
 
 
 class MarketSnapshotBuilder:
-    def __init__(self, ohlc_client: FinnhubClient) -> None:
+    def __init__(self, ohlc_client: OHLCProviderBase) -> None:
         self.ohlc_client = ohlc_client
 
     async def build(self, block: dict[str, Any]) -> dict[str, Any]:
@@ -67,11 +67,20 @@ class MarketSnapshotBuilder:
             "signal_end_utc": end_utc,
             "price_at_start": price_at_start,
             "price_at_end": price_at_end,
+            "range_low": level_context.get("range_low"),
+            "range_high": level_context.get("range_high"),
+            "pivot_mid": level_context.get("pivot_mid"),
+            "reclaim_level": level_context.get("reclaim_level"),
+            "breakdown_level": level_context.get("breakdown_level"),
+            "breakout_level": level_context.get("breakout_level"),
             "support_zone": level_context.get("support_zone"),
             "resistance_zone": level_context.get("resistance_zone"),
+            "nearest_supply_zone": level_context.get("nearest_supply_zone"),
+            "nearest_demand_zone": level_context.get("nearest_demand_zone"),
             "key_level": level_context.get("key_level"),
             "d1_bias": phase.get("d1_bias"),
             "h4_structure": phase.get("h4_structure"),
+            "h4_context_type": phase.get("h4_context_type"),
             "h1_phase": phase.get("h1_phase"),
             "m15_phase": phase.get("m15_phase"),
             "chart_bias": phase.get("chart_bias"),

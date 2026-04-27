@@ -63,6 +63,8 @@ async def dashboard_home(request: Request):
             "avg_mae_30m": 0,
             "best_phase": None,
             "worst_phase": None,
+            "best_h4_context_type": None,
+            "worst_h4_context_type": None,
         },
         "outcome_summary",
     )
@@ -70,6 +72,16 @@ async def dashboard_home(request: Request):
         lambda: repo.get_outcomes_by_phase(),
         [],
         "outcomes_by_phase",
+    )
+    outcomes_by_h4_context = await _load_section(
+        lambda: repo.get_outcomes_by_h4_context_type(),
+        [],
+        "outcomes_by_h4_context",
+    )
+    outcomes_by_reason_code = await _load_section(
+        lambda: repo.get_outcomes_by_reason_code(),
+        [],
+        "outcomes_by_reason_code",
     )
     outcomes_by_grade = await _load_section(
         lambda: repo.get_outcomes_by_grade(),
@@ -93,6 +105,8 @@ async def dashboard_home(request: Request):
             "stats": stats,
             "outcome_summary": outcome_summary,
             "outcomes_by_phase": outcomes_by_phase,
+            "outcomes_by_h4_context": outcomes_by_h4_context,
+            "outcomes_by_reason_code": outcomes_by_reason_code,
             "outcomes_by_grade": outcomes_by_grade,
             "latest_outcomes": latest_outcomes,
         },

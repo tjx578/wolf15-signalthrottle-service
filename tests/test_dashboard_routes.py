@@ -50,6 +50,7 @@ class FakeSignalRepository:
                     "event_count": 38,
                     "market_context_status": "NOT_REQUIRED",
                     "trade_plan_status": "NOT_REQUIRED",
+                    "h4_structure": None,
                     "reason_code": "PRESSURE_BELOW_BPLUS",
                     "dashboard_bucket": "radar_below_threshold",
                     "owner_alert": "NO",
@@ -69,6 +70,7 @@ class FakeSignalRepository:
                     "action": "BUY_ON_RETEST_OR_RECLAIM_HOLD",
                     "entry_zone": "143.400-143.550",
                     "invalidation": "143.250",
+                    "h4_structure": "BULLISH_CONTINUATION",
                     "market_context_status": "READY",
                     "trade_plan_status": "READY",
                     "reason_code": "PIVOT_RECLAIM_VALID",
@@ -88,6 +90,7 @@ class FakeSignalRepository:
                     "action": "WAIT_SUPPORT_REACTION_OR_RECLAIM",
                     "entry_zone": "1.0710-1.0720",
                     "invalidation": "1.0695",
+                    "h4_structure": "BEARISH_EXHAUSTION_RISK",
                     "market_context_status": "READY",
                     "trade_plan_status": "READY",
                     "reason_code": "SUPPORT_DECISION_PENDING",
@@ -107,12 +110,13 @@ class FakeSignalRepository:
                     "execution_grade": None,
                     "chart_phase": None,
                     "action": None,
+                    "h4_structure": "BEARISH_CONTINUATION",
                     "market_context_status": "PENDING_OR_FAILED",
                     "trade_plan_status": "TRADE_PLAN_REQUIRED",
-                    "reason_code": "TRADE_PLAN_REQUIRED",
+                    "reason_code": "H4_BEARISH_MASTER_STRUCTURE",
                     "dashboard_bucket": "watchlist_trade_plan_pending",
                     "owner_alert": "PENDING",
-                    "display_message": "GBPUSD B+ pressure is valid. Trade plan is required and still pending market-context enrichment.",
+                    "display_message": "GBPUSD B+ pressure is valid, but H4 bearish master structure blocks bullish continuation promotion.",
                     "signal_end_wita": "2026-04-27 15:30:03",
                 }
             ],
@@ -133,8 +137,9 @@ class FakeSignalRepository:
             "density_per_minute": 11.96,
             "max_gap_seconds": 14.58,
             "message": "GBPUSD B+ pressure with valid market structure. Trade plan shown as watchlist setup.",
-            "reason_code": "SUPPORT_DECISION_PENDING",
-            "payload": {"reason": "support reaction setup", "scenario_set": {"primary_scenario": {"action": "WAIT_SUPPORT_REACTION_OR_RECLAIM"}}},
+            "reason_code": "H4_BEARISH_MASTER_STRUCTURE",
+            "h4_structure": "BEARISH_CONTINUATION",
+            "payload": {"reason": "support reaction setup", "snapshot": {"h4_structure": "BEARISH_CONTINUATION"}, "scenario_set": {"primary_scenario": {"action": "WAIT_SUPPORT_REACTION_OR_RECLAIM"}}},
         }
 
     async def get_signal_series_detail(self, symbol: str) -> dict | None:
@@ -179,6 +184,23 @@ class FakeSignalRepository:
                 "trade_plan_id": 9,
                 "symbol": symbol,
                 "message": "GBPUSD B+ pressure with valid market structure. Trade plan shown as watchlist setup.",
+                "reason_code": "H4_BEARISH_MASTER_STRUCTURE",
+                "h4_structure": "BEARISH_CONTINUATION",
+            },
+            "latest_snapshot": {
+                "h4_structure": "BEARISH_CONTINUATION",
+                "chart_phase": "SUPPORT_REACTION_PENDING",
+                "key_level": "1.27200",
+                "pivot_mid": 1.272,
+                "range_low": 1.271,
+                "range_high": 1.273,
+                "reclaim_level": 1.272,
+                "breakdown_level": 1.271,
+                "breakout_level": 1.273,
+                "nearest_demand_zone": "1.27100-1.27200",
+                "nearest_supply_zone": "1.27280-1.27380",
+                "support_zone": "1.27100-1.27200",
+                "resistance_zone": "1.27280-1.27380",
             },
         }
 
@@ -198,16 +220,69 @@ class FakeSignalRepository:
             "avg_mae_30m": 0,
             "best_phase": None,
             "worst_phase": None,
+            "best_h4_context_type": "FAILED_BREAKOUT_ACCEPTANCE",
+            "worst_h4_context_type": "RANGE_EDGE_COMPRESSION",
         }
 
     async def get_outcomes_by_phase(self) -> list[dict]:
         return []
 
+    async def get_outcomes_by_h4_context_type(self) -> list[dict]:
+        return [
+            {
+                "h4_context_type": "FAILED_BREAKOUT_ACCEPTANCE",
+                "count": 4,
+                "strong_count": 3,
+                "strong_pct": 75.0,
+                "avg_mfe_30m": 0.0042,
+                "avg_mae_30m": 0.0011,
+            },
+            {
+                "h4_context_type": "RANGE_EDGE_COMPRESSION",
+                "count": 5,
+                "strong_count": 1,
+                "strong_pct": 20.0,
+                "avg_mfe_30m": 0.0013,
+                "avg_mae_30m": 0.0024,
+            },
+        ]
+
+    async def get_outcomes_by_reason_code(self) -> list[dict]:
+        return [
+            {
+                "reason_code": "UPPER_RANGE_FAILED_EXPANSION",
+                "count": 4,
+                "strong_count": 3,
+                "strong_pct": 75.0,
+                "avg_mfe_30m": 0.0045,
+                "avg_mae_30m": 0.0010,
+            },
+            {
+                "reason_code": "UPPER_RESISTANCE_REJECTION",
+                "count": 5,
+                "strong_count": 1,
+                "strong_pct": 20.0,
+                "avg_mfe_30m": 0.0012,
+                "avg_mae_30m": 0.0026,
+            },
+        ]
+
     async def get_outcomes_by_grade(self) -> list[dict]:
         return []
 
     async def get_latest_outcomes(self, limit: int = 20) -> list[dict]:
-        return []
+        return [
+            {
+                "symbol": "USDJPY",
+                "chart_phase": "UPPER_RANGE_EXHAUSTION_RISK",
+                "h4_context_type": "FAILED_BREAKOUT_ACCEPTANCE",
+                "execution_side": "SELL_ON_RALLY_OR_CONTINUATION",
+                "price_at_signal": 159.42,
+                "mfe_30m": 0.0042,
+                "mae_30m": 0.0011,
+                "result_label": "FOLLOW_THROUGH_STRONG",
+            }
+        ]
 
 
 class FakeSignalRepositoryWithBrokenOutcomes(FakeSignalRepository):
@@ -215,6 +290,12 @@ class FakeSignalRepositoryWithBrokenOutcomes(FakeSignalRepository):
         raise RuntimeError("signal_outcomes table missing")
 
     async def get_outcomes_by_phase(self) -> list[dict]:
+        raise RuntimeError("signal_outcomes table missing")
+
+    async def get_outcomes_by_h4_context_type(self) -> list[dict]:
+        raise RuntimeError("signal_outcomes table missing")
+
+    async def get_outcomes_by_reason_code(self) -> list[dict]:
         raise RuntimeError("signal_outcomes table missing")
 
     async def get_outcomes_by_grade(self) -> list[dict]:
@@ -243,13 +324,23 @@ def test_dashboard_watchlist_renders_pending_pressure_without_trade_plan(monkeyp
     assert "watchlist_trade_plan_pending" in response.text
     assert "PENDING" in response.text
     assert "TRADE_PLAN_REQUIRED" in response.text
-    assert "GBPUSD B+ pressure is valid. Trade plan is required and still pending market-context enrichment." in response.text
+    assert "H4_BEARISH_MASTER_STRUCTURE" in response.text
+    assert "BEARISH_CONTINUATION" in response.text
+    assert "GBPUSD B+ pressure is valid, but H4 bearish master structure blocks bullish continuation promotion." in response.text
     assert "AUDUSD" in response.text
     assert "radar_below_threshold" in response.text
     assert "/series-detail/GBPUSD" in response.text
     assert "/series-detail/USDJPY" in response.text
     assert "trade_plan_ready" in response.text
     assert "YES" in response.text
+    assert "Performance by H4 Context" in response.text
+    assert "FAILED_BREAKOUT_ACCEPTANCE" in response.text
+    assert "RANGE_EDGE_COMPRESSION" in response.text
+    assert "Performance by Reason Code" in response.text
+    assert "UPPER_RANGE_FAILED_EXPANSION" in response.text
+    assert "UPPER_RESISTANCE_REJECTION" in response.text
+    assert "Best H4 Context" in response.text
+    assert "Worst H4 Context" in response.text
 
 
 def test_signal_detail_shows_rationale_summary(monkeypatch) -> None:
@@ -266,6 +357,9 @@ def test_signal_detail_shows_rationale_summary(monkeypatch) -> None:
     assert response.status_code == 200
     assert "Rationale" in response.text
     assert "GBPUSD B+ pressure with valid market structure. Trade plan shown as watchlist setup." in response.text
+    assert "H4 Structure" in response.text
+    assert "H4 Promotion Gate" in response.text
+    assert "BEARISH_CONTINUATION" in response.text
     assert "/series-detail/GBPUSD" in response.text
 
 
@@ -284,6 +378,9 @@ def test_series_detail_shows_merged_series_and_raw_blocks(monkeypatch) -> None:
     assert "Pressure Series Detail" in response.text
     assert "Blocks Merged" in response.text
     assert "Raw Block History" in response.text
+    assert "Latest Market Snapshot" in response.text
+    assert "H4 Promotion Gate" in response.text
+    assert "BEARISH_CONTINUATION" in response.text
     assert "Plan 9" in response.text
     assert "2026-04-27T07:15:23Z" in response.text
 
@@ -303,3 +400,6 @@ def test_dashboard_keeps_signals_when_outcome_queries_fail(monkeypatch) -> None:
     assert "GBPUSD" in response.text
     assert "watchlist_trade_plan_pending" in response.text
     assert "No outcome data yet" in response.text
+    assert "No H4 context outcome data yet" in response.text
+    assert "No reason-code outcome data yet" in response.text
+    assert "Best H4 Context" in response.text

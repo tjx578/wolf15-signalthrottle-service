@@ -22,6 +22,10 @@
       <strong>{{ signal.action }}</strong>
     </div>
     <div class="detail-item">
+      <span class="label">H4 Structure</span>
+      <strong>{{ signal.h4_structure or (signal.payload.snapshot.h4_structure if signal.payload and signal.payload.snapshot else '-') }}</strong>
+    </div>
+    <div class="detail-item">
       <span class="label">Reason Code</span>
       <strong>{{ signal.reason_code or '-' }}</strong>
     </div>
@@ -47,6 +51,14 @@
     <h3>Rationale</h3>
     <p>{{ signal.display_message or signal.message or 'No rationale available.' }}</p>
   </section>
+
+  {% if signal.reason_code and signal.reason_code[:3] == 'H4_' %}
+  <section class="panel">
+    <h3>H4 Promotion Gate</h3>
+    <p>Signal ini tidak dipromosikan menjadi continuation setup karena struktur H4 masih konflik dengan arah eksekusi yang sedang diuji.</p>
+    <p><strong>{{ signal.h4_structure or (signal.payload.snapshot.h4_structure if signal.payload and signal.payload.snapshot else '-') }}</strong> / <strong>{{ signal.reason_code }}</strong></p>
+  </section>
+  {% endif %}
 
   <h3>Trade Plan JSON</h3>
   <pre class="json-view">{{ signal.payload | tojson(indent=2) if signal.payload else '{}' }}</pre>
