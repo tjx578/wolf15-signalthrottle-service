@@ -511,6 +511,7 @@ class SignalRepository:
             "actionable": ("A-", "A", "A+"),
         }
         grades = grade_map[normalized_bucket]
+        fetch_limit = max(limit * 10, limit)
 
         if normalized_bucket == "actionable":
             where_clause = """
@@ -519,10 +520,10 @@ class SignalRepository:
                 AND tp.execution_grade = ANY(%s)
                 AND COALESCE(tp.action, '') NOT IN ('NO_TRADE', 'NO_TRADE_WAIT_CONTEXT')
             """
-            params: tuple[Any, ...] = (list(grades), ["B+", "A", "A+"], limit)
+            params: tuple[Any, ...] = (list(grades), ["B+", "A", "A+"], fetch_limit)
         else:
             where_clause = "pb.pressure_grade = ANY(%s)"
-            params = (list(grades), limit)
+            params = (list(grades), fetch_limit)
 
         async with get_cursor() as cur:
             await cur.execute(
@@ -620,7 +621,7 @@ class SignalRepository:
                 params,
             )
             rows = await cur.fetchall()
-            return _dedupe_latest_signal_rows(rows)
+            return _dedupe_latest_signal_rows(rows, limit=limit)
 
     async def get_trade_plan(self, plan_id: int) -> dict | None:
         async with get_cursor() as cur:
@@ -1024,7 +1025,7 @@ def _phase_grade_row(row: dict, *, key: str | None = None) -> dict:
     return out
 
 
-def _dedupe_latest_signal_rows(rows: list[dict]) -> list[dict]:
+def _dedupe_latest_signal_rows(rows: list[dict], limit: int | None = None) -> list[dict]:
     deduped: list[dict] = []
     seen_keys: set[tuple[Any, Any, Any]] = set()
 
@@ -1034,6 +1035,8 @@ def _dedupe_latest_signal_rows(rows: list[dict]) -> list[dict]:
             continue
         seen_keys.add(key)
         deduped.append(row)
+        if limit is not None and len(deduped) >= limit:
+            break
 
     return deduped
 
