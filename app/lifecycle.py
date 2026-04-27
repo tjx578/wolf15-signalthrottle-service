@@ -10,11 +10,18 @@ from fastapi import FastAPI
 
 from app.detector.finalizer import SignalFinalizer
 from app.logging_config import setup_logging
-from app.outcomes.outcome_worker import OutcomeWorker
 from app.storage.postgres import close_db, init_db
 from app.storage.migrations import run_migrations
 
 logger = logging.getLogger(__name__)
+
+try:
+    from app.outcomes.outcome_worker import OutcomeWorker
+    _OUTCOMES_AVAILABLE = True
+except Exception:
+    OutcomeWorker = None  # type: ignore[assignment]
+    _OUTCOMES_AVAILABLE = False
+    logger.exception("Outcome worker disabled during startup")
 
 
 async def finalizer_loop(stop_event: asyncio.Event) -> None:
@@ -63,7 +70,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.warning("DB init skipped (will retry on first request): %s", exc)
 
     finalizer_task = asyncio.create_task(finalizer_loop(stop_event))
-    outcome_task = asyncio.create_task(outcome_loop(stop_event))
+    if _OUTCOMES_AVAILABLE and OutcomeWorker is not None:
+        outcome_task = asyncio.create_task(outcome_loop(stop_event))
 
     yield
 

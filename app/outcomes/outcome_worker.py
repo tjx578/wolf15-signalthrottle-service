@@ -6,15 +6,16 @@ upserts the resulting MFE/MAE/label snapshot.
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import Any
-
-from loguru import logger
 
 from app.config import settings
 from app.market.finnhub_client import FinnhubClient
 from app.outcomes.mfe_mae_tracker import MFEMAETracker, _coerce_datetime
 from app.storage.repositories import SignalRepository
+
+logger = logging.getLogger(__name__)
 
 
 DEFAULT_DUE_SECONDS = 65 * 60
@@ -50,17 +51,16 @@ class OutcomeWorker:
                 stats["processed"] += 1
 
                 logger.info(
-                    "Outcome calculated trade_plan_id={} symbol={} label={}",
+                    "Outcome calculated trade_plan_id=%s symbol=%s label=%s",
                     plan["id"],
                     plan.get("symbol"),
                     result.get("result_label"),
                 )
-            except Exception as exc:
+            except Exception:
                 stats["errors"] += 1
                 logger.exception(
-                    "Outcome calculation failed trade_plan_id={}: {}",
+                    "Outcome calculation failed trade_plan_id=%s",
                     plan.get("id"),
-                    exc,
                 )
         return stats
 

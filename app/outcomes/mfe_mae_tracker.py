@@ -6,13 +6,14 @@ across 15m / 30m / 60m windows, then classifies the outcome.
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from loguru import logger
-
 from app.market.finnhub_client import FinnhubClient
 from app.outcomes.outcome_classifier import classify_outcome
+
+logger = logging.getLogger(__name__)
 
 
 def pip_size(symbol: str) -> float:
@@ -168,7 +169,7 @@ class MFEMAETracker:
                 end_time_utc=signal_end_utc + timedelta(minutes=75),
             )
         except Exception as exc:
-            logger.warning("OHLC fetch failed for {}: {}", symbol, exc)
+            logger.warning("OHLC fetch failed for %s: %s", symbol, exc)
             candles = []
 
         mfe_15m, mae_15m, price_after_15m = calculate_mfe_mae(
