@@ -60,3 +60,29 @@ def test_build_plan_c_grade():
     assert result["execution_grade"] == "C"
     assert result["signal_bucket"] == "watchlist"
     assert result["execution_side"] == "NO_TRADE"
+
+
+def test_build_plan_b_plus_stays_watchlist() -> None:
+    block = {
+        "symbol": "GBPUSD",
+        "pressure_grade": "A-",
+        "start_utc": "2026-04-24T02:00:00Z",
+        "end_utc": "2026-04-24T02:11:00Z",
+        "duration_minutes": 11.0,
+        "event_count": 90,
+        "density_per_minute": 8.2,
+        "max_gap_seconds": 35.0,
+        "avg_gap_seconds": 8.0,
+    }
+    snapshot = {
+        "chart_bias": "SUPPORT_TEST",
+        "chart_phase": "SUPPORT_DECISION_ZONE",
+        "action": "WAIT_BREAKDOWN_OR_RECLAIM",
+        "support_zone": "1.27100-1.27200",
+    }
+
+    result = build_trade_plan(block, snapshot)
+
+    assert result["execution_grade"] == "B+"
+    assert result["signal_bucket"] == "watchlist"
+    assert result["execution_side"] == "WAIT_BREAKDOWN_OR_RECLAIM"

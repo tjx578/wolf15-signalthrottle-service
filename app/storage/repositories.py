@@ -257,7 +257,7 @@ class SignalRepository:
                            pb.density_per_minute
                     FROM trade_plans tp
                     LEFT JOIN pressure_blocks pb ON tp.block_id = pb.id
-                    WHERE tp.execution_grade IN ('A+', 'A', 'B+')
+                                        WHERE tp.execution_grade IN ('A+', 'A')
                       AND tp.action <> 'NO_TRADE_WAIT_CONTEXT'
                     ORDER BY tp.created_at DESC
                     LIMIT %s
@@ -273,7 +273,7 @@ class SignalRepository:
                            pb.density_per_minute
                     FROM trade_plans tp
                     LEFT JOIN pressure_blocks pb ON tp.block_id = pb.id
-                    WHERE tp.execution_grade = 'C'
+                          WHERE tp.execution_grade IN ('B', 'B+', 'C')
                        OR tp.action = 'NO_TRADE_WAIT_CONTEXT'
                        OR tp.pressure_status = 'WATCHLIST_PRESSURE'
                     ORDER BY tp.created_at DESC

@@ -56,14 +56,14 @@ class FakeSignalRepository:
             plans = [
                 plan
                 for plan in plans
-                if plan.get("execution_grade") in {"A+", "A", "B+"}
+                if plan.get("execution_grade") in {"A+", "A"}
                 and plan.get("action") != "NO_TRADE_WAIT_CONTEXT"
             ]
         elif bucket == "watchlist":
             plans = [
                 plan
                 for plan in plans
-                if plan.get("execution_grade") == "C"
+                if plan.get("execution_grade") in {"B", "B+", "C"}
                 or plan.get("action") == "NO_TRADE_WAIT_CONTEXT"
             ]
         return plans[:limit]

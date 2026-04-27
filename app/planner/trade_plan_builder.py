@@ -42,7 +42,7 @@ def pressure_status_from_grade(pressure_grade: str) -> str:
 
 
 def is_actionable_signal(execution_grade: str, action: str) -> bool:
-    return execution_grade in {"A+", "A", "B+"} and action != "NO_TRADE_WAIT_CONTEXT"
+    return execution_grade in {"A+", "A"} and action != "NO_TRADE_WAIT_CONTEXT"
 
 
 def build_message(
