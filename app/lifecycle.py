@@ -42,6 +42,10 @@ async def finalizer_loop(stop_event: asyncio.Event) -> None:
 
 
 async def outcome_loop(stop_event: asyncio.Event) -> None:
+    if OutcomeWorker is None:
+        logger.warning("Outcome loop skipped because OutcomeWorker is unavailable")
+        return
+
     worker = OutcomeWorker()
 
     while not stop_event.is_set():
@@ -91,9 +95,24 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     engine_log_sync_task: asyncio.Task[None] | None = None
 
     try:
-        await init_db()
-        await run_migrations()
-        logger.info("Database ready")
+        schema_error: Exception | None = None
+        try:
+            await init_db()
+        except Exception as exc:
+            schema_error = exc
+            logger.warning(
+                "Database schema init failed; continuing with additive migrations: %s",
+                exc,
+            )
+
+        migration_results = await run_migrations()
+        migration_errors = [r for r in migration_results if r.get("status") != "ok"]
+        if migration_errors:
+            logger.warning("Database startup completed with migration errors")
+        elif schema_error is not None:
+            logger.info("Database ready after recovering from schema init failure")
+        else:
+            logger.info("Database ready")
     except Exception as exc:
         logger.warning("DB init skipped (will retry on first request): %s", exc)
 

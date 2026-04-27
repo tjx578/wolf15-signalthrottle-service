@@ -10,6 +10,16 @@ from app.storage.postgres import get_cursor
 
 logger = logging.getLogger(__name__)
 
+_PRESSURE_BLOCKS_REQUIRED_COLUMNS = (
+    "block_hash",
+    "market_context_status",
+    "trade_plan_status",
+    "pending_reason",
+)
+_PRESSURE_BLOCKS_REQUIRED_INDEXES = (
+    "uq_st_pressure_blocks_block_hash",
+)
+
 
 async def run_migrations() -> list[dict]:
     """Run any pending migrations beyond the base schema.
@@ -36,6 +46,75 @@ async def run_migrations() -> list[dict]:
             results.append({"name": m.__name__, "status": "error", "error": str(exc)})
             logger.error("Migration %s FAILED: %s", m.__name__, exc, exc_info=True)
     return results
+
+
+async def get_pressure_blocks_schema_status() -> dict:
+    table_exists = False
+    existing_columns: set[str] = set()
+    existing_indexes: set[str] = set()
+
+    async with get_cursor() as cur:
+        await cur.execute(
+            """
+            SELECT EXISTS (
+                SELECT 1
+                FROM information_schema.tables
+                WHERE table_schema = %s AND table_name = 'pressure_blocks'
+            ) AS table_exists
+            """,
+            (settings.db_schema,),
+        )
+        row = await cur.fetchone()
+        table_exists = bool(row and row.get("table_exists"))
+
+        if table_exists:
+            await cur.execute(
+                """
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = %s AND table_name = 'pressure_blocks'
+                """,
+                (settings.db_schema,),
+            )
+            existing_columns = {r["column_name"] for r in await cur.fetchall()}
+
+            await cur.execute(
+                """
+                SELECT indexname
+                FROM pg_indexes
+                WHERE schemaname = %s AND tablename = 'pressure_blocks'
+                """,
+                (settings.db_schema,),
+            )
+            existing_indexes = {r["indexname"] for r in await cur.fetchall()}
+
+    missing_columns = [
+        column for column in _PRESSURE_BLOCKS_REQUIRED_COLUMNS if column not in existing_columns
+    ]
+    missing_indexes = [
+        index_name
+        for index_name in _PRESSURE_BLOCKS_REQUIRED_INDEXES
+        if index_name not in existing_indexes
+    ]
+
+    pressure_blocks_status = {
+        column: column in existing_columns for column in _PRESSURE_BLOCKS_REQUIRED_COLUMNS
+    }
+    pressure_blocks_status.update(
+        {index_name: index_name in existing_indexes for index_name in _PRESSURE_BLOCKS_REQUIRED_INDEXES}
+    )
+
+    return {
+        "pressure_blocks": pressure_blocks_status,
+        "table_exists": table_exists,
+        "missing_columns": missing_columns,
+        "missing_indexes": missing_indexes,
+        "status": (
+            "ok"
+            if table_exists and not missing_columns and not missing_indexes
+            else "DATABASE_SCHEMA_OUT_OF_SYNC"
+        ),
+    }
 
 
 async def _migration_001_add_event_hash_if_missing() -> None:

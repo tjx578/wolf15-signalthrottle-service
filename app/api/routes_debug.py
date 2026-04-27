@@ -10,7 +10,7 @@ from app.ingestion.engine_log_sync import (
     get_last_sync_result,
     owner_day_window_utc,
 )
-from app.storage.migrations import run_migrations
+from app.storage.migrations import get_pressure_blocks_schema_status, run_migrations
 from app.storage.postgres import init_db
 from app.storage.repositories import SignalRepository
 
@@ -41,6 +41,11 @@ async def debug_run_migrations(include_schema: bool = False) -> dict:
         "schema_init_error": schema_error,
         "migrations": results,
     }
+
+
+@router.get("/schema")
+async def debug_schema_status() -> dict:
+    return await get_pressure_blocks_schema_status()
 
 
 @router.get("/sync")

@@ -81,3 +81,39 @@ def test_debug_sync_endpoint_explains_empty_dashboard(monkeypatch) -> None:
     assert response.status_code == 200
     payload = response.json()
     assert payload["dashboard_empty_reason"] == "engine_log_sync_disabled"
+
+
+def test_debug_schema_endpoint_reports_drift(monkeypatch) -> None:
+    monkeypatch.setattr(lifecycle, "init_db", _noop)
+    monkeypatch.setattr(lifecycle, "run_migrations", _noop)
+    monkeypatch.setattr(lifecycle, "close_db", _noop)
+
+    async def _fake_schema_status() -> dict:
+        return {
+            "pressure_blocks": {
+                "block_hash": False,
+                "market_context_status": True,
+                "trade_plan_status": False,
+                "pending_reason": True,
+                "uq_st_pressure_blocks_block_hash": False,
+            },
+            "table_exists": True,
+            "missing_columns": ["block_hash", "trade_plan_status"],
+            "missing_indexes": ["uq_st_pressure_blocks_block_hash"],
+            "status": "DATABASE_SCHEMA_OUT_OF_SYNC",
+        }
+
+    monkeypatch.setattr(routes_debug, "get_pressure_blocks_schema_status", _fake_schema_status)
+
+    app = create_app()
+    client = TestClient(app)
+
+    response = client.get("/debug/schema")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "DATABASE_SCHEMA_OUT_OF_SYNC"
+    assert payload["pressure_blocks"]["block_hash"] is False
+    assert payload["pressure_blocks"]["trade_plan_status"] is False
+    assert payload["missing_columns"] == ["block_hash", "trade_plan_status"]
+    assert payload["missing_indexes"] == ["uq_st_pressure_blocks_block_hash"]
