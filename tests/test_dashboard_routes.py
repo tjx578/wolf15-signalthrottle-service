@@ -30,6 +30,8 @@ class FakeSignalRepository:
                 "action": None,
                 "market_context_status": "PENDING",
                 "trade_plan_status": "TRADE_PLAN_PENDING",
+                "density_per_minute": 9.65,
+                "density_state": "HIGH_DENSITY",
                 "signal_end_wita": "2026-04-27 15:30:03",
             }
         ]
@@ -48,6 +50,8 @@ class FakeSignalRepository:
                     "action": None,
                     "duration_minutes": 4.2,
                     "event_count": 38,
+                    "density_per_minute": 4.15,
+                    "density_state": "LOW_DENSITY",
                     "market_context_status": "NOT_REQUIRED",
                     "trade_plan_status": "NOT_REQUIRED",
                     "h4_structure": None,
@@ -70,6 +74,8 @@ class FakeSignalRepository:
                     "action": "BUY_ON_RETEST_OR_RECLAIM_HOLD",
                     "entry_zone": "143.400-143.550",
                     "invalidation": "143.250",
+                    "density_per_minute": 11.25,
+                    "density_state": "VERY_HIGH_DENSITY",
                     "h4_structure": "BULLISH_CONTINUATION",
                     "market_context_status": "READY",
                     "trade_plan_status": "READY",
@@ -90,6 +96,8 @@ class FakeSignalRepository:
                     "action": "WAIT_SUPPORT_REACTION_OR_RECLAIM",
                     "entry_zone": "1.0710-1.0720",
                     "invalidation": "1.0695",
+                    "density_per_minute": 7.42,
+                    "density_state": "HIGH_DENSITY",
                     "h4_structure": "BEARISH_EXHAUSTION_RISK",
                     "market_context_status": "READY",
                     "trade_plan_status": "READY",
@@ -110,6 +118,8 @@ class FakeSignalRepository:
                     "execution_grade": None,
                     "chart_phase": None,
                     "action": None,
+                    "density_per_minute": 9.65,
+                    "density_state": "HIGH_DENSITY",
                     "h4_structure": "BEARISH_CONTINUATION",
                     "market_context_status": "PENDING_OR_FAILED",
                     "trade_plan_status": "TRADE_PLAN_REQUIRED",
@@ -135,8 +145,10 @@ class FakeSignalRepository:
             "duration_minutes": 9.45,
             "event_count": 113,
             "density_per_minute": 11.96,
+            "density_state": "VERY_HIGH_DENSITY",
             "max_gap_seconds": 14.58,
             "message": "GBPUSD B+ pressure with valid market structure. Trade plan shown as watchlist setup.",
+            "grade_note": "B+ strong density / A- candidate, but duration below 10m",
             "reason_code": "H4_BEARISH_MASTER_STRUCTURE",
             "h4_structure": "BEARISH_CONTINUATION",
             "payload": {"reason": "support reaction setup", "snapshot": {"h4_structure": "BEARISH_CONTINUATION"}, "scenario_set": {"primary_scenario": {"action": "WAIT_SUPPORT_REACTION_OR_RECLAIM"}}},
@@ -150,12 +162,15 @@ class FakeSignalRepository:
                 "end_utc": "2026-04-27T07:30:03Z",
                 "duration_minutes": 14.67,
                 "event_count": 113,
+                "density_per_minute": 7.7,
+                "density_state": "HIGH_DENSITY",
                 "block_count": 2,
                 "best_pressure_grade": "A-",
                 "latest_pressure_grade": "B+",
                 "pressure_status": "ACTIVE",
                 "max_gap_seconds": 22.0,
                 "latest_trade_plan_id": 9,
+                "grade_note": "High density pressure",
             },
             "blocks": [
                 {
@@ -164,6 +179,8 @@ class FakeSignalRepository:
                     "end_utc": "2026-04-27T07:30:03Z",
                     "pressure_grade": "B+",
                     "event_count": 63,
+                    "density_per_minute": 14.38,
+                    "density_state": "VERY_HIGH_DENSITY",
                     "duration_minutes": 4.38,
                     "pressure_status": "ACTIVE",
                     "trade_plan_id": 9,
@@ -174,6 +191,8 @@ class FakeSignalRepository:
                     "end_utc": "2026-04-27T07:25:25Z",
                     "pressure_grade": "A-",
                     "event_count": 50,
+                    "density_per_minute": 4.99,
+                    "density_state": "LOW_DENSITY",
                     "duration_minutes": 10.03,
                     "pressure_status": "SOFT_FINALIZED",
                     "trade_plan_id": None,
@@ -329,6 +348,8 @@ def test_dashboard_watchlist_renders_pending_pressure_without_trade_plan(monkeyp
     assert "GBPUSD B+ pressure is valid, but H4 bearish master structure blocks bullish continuation promotion." in response.text
     assert "AUDUSD" in response.text
     assert "radar_below_threshold" in response.text
+    assert "Density State" in response.text
+    assert "HIGH_DENSITY" in response.text
     assert "/series-detail/GBPUSD" in response.text
     assert "/series-detail/USDJPY" in response.text
     assert "trade_plan_ready" in response.text
@@ -358,6 +379,9 @@ def test_signal_detail_shows_rationale_summary(monkeypatch) -> None:
     assert "Rationale" in response.text
     assert "GBPUSD B+ pressure with valid market structure. Trade plan shown as watchlist setup." in response.text
     assert "H4 Structure" in response.text
+    assert "Density State" in response.text
+    assert "VERY_HIGH_DENSITY" in response.text
+    assert "B+ strong density / A- candidate, but duration below 10m" in response.text
     assert "H4 Promotion Gate" in response.text
     assert "BEARISH_CONTINUATION" in response.text
     assert "/series-detail/GBPUSD" in response.text
@@ -377,6 +401,10 @@ def test_series_detail_shows_merged_series_and_raw_blocks(monkeypatch) -> None:
     assert response.status_code == 200
     assert "Pressure Series Detail" in response.text
     assert "Blocks Merged" in response.text
+    assert "Density" in response.text
+    assert "Density State" in response.text
+    assert "7.7 event/min" in response.text
+    assert "HIGH_DENSITY" in response.text
     assert "Raw Block History" in response.text
     assert "Latest Market Snapshot" in response.text
     assert "H4 Promotion Gate" in response.text

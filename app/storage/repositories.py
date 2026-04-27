@@ -756,18 +756,21 @@ class SignalRepository:
                 (symbol, series["end_utc"], series["start_utc"]),
             )
             blocks = await cur.fetchall()
-        blocks = sorted(
-            _dedupe_exact_pressure_block_rows(blocks),
-            key=lambda row: (row.get("end_utc"), row.get("id") or 0),
-            reverse=True,
-        )
+        blocks = [
+            _with_density_metadata(row)
+            for row in sorted(
+                _collapse_replay_overlap_block_rows(_dedupe_exact_pressure_block_rows(blocks)),
+                key=lambda row: (row.get("end_utc"), row.get("id") or 0),
+                reverse=True,
+            )
+        ]
 
         trade_plan = None
         if series.get("latest_trade_plan_id"):
             trade_plan = await self.get_trade_plan(series["latest_trade_plan_id"])
 
         return {
-            "series": series,
+            "series": _with_density_metadata(series),
             "latest_snapshot": latest_snapshot,
             "blocks": blocks,
             "trade_plan": trade_plan,
@@ -1060,7 +1063,8 @@ class SignalRepository:
                 """,
                 (plan_id,),
             )
-            return await cur.fetchone()
+            row = await cur.fetchone()
+            return _with_density_metadata(row) if row else None
 
     async def get_trade_plan_for_block(self, block_id: int) -> dict | None:
         async with get_cursor() as cur:
@@ -1553,6 +1557,7 @@ def _select_latest_signal_rows(
     )
 
     filtered = [row for row in collapsed if _matches_signal_bucket(row, bucket)]
+    filtered = [_with_density_metadata(row) for row in filtered]
     if limit is None:
         return filtered
     return filtered[:limit]
@@ -1740,6 +1745,68 @@ def _dedupe_exact_pressure_block_rows(rows: list[dict]) -> list[dict]:
     return list(deduped.values())
 
 
+def _collapse_replay_overlap_block_rows(rows: list[dict]) -> list[dict]:
+    ranked_rows = sorted(rows, key=_replay_block_preference_key, reverse=True)
+    kept: list[dict] = []
+    for row in ranked_rows:
+        if any(_is_replay_overlap_duplicate(row, candidate) for candidate in kept):
+            continue
+        kept.append(row)
+    return kept
+
+
+def _is_replay_overlap_duplicate(row: dict, candidate: dict) -> bool:
+    if not (_is_replay_row(row) and _is_replay_row(candidate)):
+        return False
+    if row.get("symbol") != candidate.get("symbol"):
+        return False
+
+    row_start = row.get("start_utc")
+    row_end = row.get("end_utc")
+    candidate_start = candidate.get("start_utc")
+    candidate_end = candidate.get("end_utc")
+    if not all((row_start, row_end, candidate_start, candidate_end)):
+        return False
+
+    overlap_start = max(row_start, candidate_start)
+    overlap_end = min(row_end, candidate_end)
+    overlap_seconds = (overlap_end - overlap_start).total_seconds()
+    if overlap_seconds <= 0:
+        return False
+
+    row_seconds = (row_end - row_start).total_seconds()
+    candidate_seconds = (candidate_end - candidate_start).total_seconds()
+    shorter_window = min(row_seconds, candidate_seconds)
+    if shorter_window <= 0:
+        return False
+
+    return overlap_seconds / shorter_window >= 0.9
+
+
+def _is_replay_row(row: dict) -> bool:
+    return row.get("pressure_status") == "REPLAY" or row.get("finalize_mode") == "REPLAY_FINALIZE"
+
+
+def _replay_block_preference_key(row: dict) -> tuple[Any, ...]:
+    start_utc = row.get("start_utc")
+    end_utc = row.get("end_utc")
+    duration_seconds = 0.0
+    if start_utc is not None and end_utc is not None:
+        duration_seconds = max((end_utc - start_utc).total_seconds(), 0.0)
+
+    grade_rank = {"REJECT": 0, "C": 1, "B+": 2, "A-": 3, "A": 4, "A+": 5}
+
+    return (
+        1 if row.get("trade_plan_id") is not None else 0,
+        duration_seconds,
+        float(row.get("event_count") or 0),
+        grade_rank.get(row.get("pressure_grade"), -1),
+        row.get("end_utc"),
+        row.get("start_utc"),
+        row.get("id") or row.get("block_id") or 0,
+    )
+
+
 def _pressure_block_identity(row: dict) -> tuple[Any, ...]:
     block_hash = row.get("block_hash")
     if block_hash:
@@ -1791,6 +1858,72 @@ def _finalize_pressure_series(series: dict[str, Any]) -> dict[str, Any]:
         "finalize_mode": series["finalize_mode"],
         "is_active": series["is_active"],
     }
+
+
+def _with_density_metadata(row: dict[str, Any]) -> dict[str, Any]:
+    out = dict(row)
+    density = row.get("density_per_minute")
+    try:
+        density_value = float(density) if density is not None else None
+    except (TypeError, ValueError):
+        density_value = None
+    out["density_state"] = _density_state(density_value)
+    out["grade_note"] = _pressure_grade_note(
+        pressure_grade=row.get("best_pressure_grade") or row.get("pressure_grade"),
+        density_per_minute=density_value,
+        duration_minutes=row.get("duration_minutes"),
+        max_gap_seconds=row.get("max_gap_seconds"),
+    )
+    return out
+
+
+def _density_state(density: float | None) -> str:
+    if density is None:
+        return "UNKNOWN"
+    if density >= 10:
+        return "VERY_HIGH_DENSITY"
+    if density >= 7:
+        return "HIGH_DENSITY"
+    if density >= 5:
+        return "VALID_DENSITY"
+    return "LOW_DENSITY"
+
+
+def _pressure_grade_note(
+    *,
+    pressure_grade: Any,
+    density_per_minute: float | None,
+    duration_minutes: Any,
+    max_gap_seconds: Any,
+) -> str | None:
+    try:
+        duration_value = float(duration_minutes) if duration_minutes is not None else None
+    except (TypeError, ValueError):
+        duration_value = None
+
+    try:
+        gap_value = float(max_gap_seconds) if max_gap_seconds is not None else None
+    except (TypeError, ValueError):
+        gap_value = None
+
+    if (
+        pressure_grade == "B+"
+        and density_per_minute is not None
+        and density_per_minute >= 7
+        and gap_value is not None
+        and gap_value <= 60
+        and duration_value is not None
+        and duration_value < 10
+    ):
+        return "B+ strong density / A- candidate, but duration below 10m"
+
+    if density_per_minute is not None and density_per_minute >= 10:
+        return "Very high density pressure"
+
+    if density_per_minute is not None and density_per_minute >= 7:
+        return "High density pressure"
+
+    return None
 
 
 def _better_pressure_grade(current: Any, candidate: Any) -> Any:

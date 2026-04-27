@@ -531,122 +531,79 @@ async def _migration_010_cleanup_duplicate_replay_pressure_blocks() -> None:
 
 
 async def _migration_011_cleanup_overlapping_replay_pressure_blocks() -> None:
-    """Remove overlapping/partial-duplicate replay blocks that have no dependent
-    snapshot or trade-plan rows.
+    """Remove replay-only rows that are near-identical overlapping reconstructions
+    of another replay row for the same symbol and have no dependent artifacts.
 
-    _migration_010 only removed exact duplicates (identical on every identity
-    field).  This migration handles the remaining case where two replay blocks
-    for the same symbol share the same start_utc but differ in end_utc / event
-    count — or more generally where their time windows overlap
-    (start_a < end_b AND start_b < end_a).
-
-    Strategy
-    --------
-    1. Find all pairs of REPLAY blocks for the same symbol whose windows
-       overlap.
-    2. Group overlapping blocks transitively (union-find via a recursive CTE)
-       so that a chain A↔B↔C is treated as one cluster.
-    3. Within each cluster keep the block with the highest event_count
-       (most complete replay); ties are broken by the lowest id (oldest row).
-    4. Delete every non-winner in the cluster **only** if it has no dependent
-       trade_plans or market_snapshots rows.  Blocks with downstream artifacts
-       are always preserved.
+    This targets the common replay pattern where one alternative reconstruction is
+    almost fully covered by another window but differs by a few seconds at the
+    boundaries. Keep any row that already owns a trade plan or market snapshot.
     """
     async with get_cursor() as cur:
         await cur.execute(
             sql.SQL(
                 """
-                WITH
-                -- ── Step 1: all REPLAY blocks ──────────────────────────────
-                replay_blocks AS (
-                    SELECT id, symbol, start_utc, end_utc, event_count
-                    FROM   {pressure_blocks}
-                    WHERE  pressure_status = 'REPLAY'
-                ),
-
-                -- ── Step 2: overlapping pairs (strict overlap, same symbol) ─
-                overlap_pairs AS (
-                    SELECT a.id AS id_a, b.id AS id_b
-                    FROM   replay_blocks a
-                    JOIN   replay_blocks b
-                           ON  b.symbol   = a.symbol
-                           AND b.id       > a.id          -- avoid self-join & duplicates
-                           AND a.start_utc < b.end_utc    -- overlap condition
-                           AND b.start_utc < a.end_utc
-                ),
-
-                -- ── Step 3: union-find — propagate cluster root (min id) ────
-                -- Seed: every block is its own root.
-                -- Iterate: if a block's current root has a smaller peer via
-                -- overlap_pairs, adopt that peer as the new root.
-                cluster_seed AS (
-                    SELECT id, id AS root
-                    FROM   replay_blocks
-                ),
-                cluster_iter AS (
-                    SELECT id, root FROM cluster_seed
-                    UNION
-                    SELECT p.id_b AS id, LEAST(c.root, p.id_a) AS root
-                    FROM   overlap_pairs p
-                    JOIN   cluster_iter  c ON c.id = p.id_a
-                    UNION
-                    SELECT p.id_a AS id, LEAST(c.root, p.id_b) AS root
-                    FROM   overlap_pairs p
-                    JOIN   cluster_iter  c ON c.id = p.id_b
-                ),
-                -- Collapse to the minimum root per block (fixed-point result)
-                clusters AS (
-                    SELECT id, MIN(root) AS cluster_root
-                    FROM   cluster_iter
-                    GROUP  BY id
-                ),
-
-                -- ── Step 4: pick the winner per cluster ─────────────────────
-                -- Winner = highest event_count; ties broken by lowest id.
-                ranked AS (
+                WITH candidates AS (
                     SELECT
-                        rb.id,
-                        cl.cluster_root,
-                        ROW_NUMBER() OVER (
-                            PARTITION BY cl.cluster_root
-                            ORDER BY rb.event_count DESC, rb.id ASC
-                        ) AS rn
-                    FROM   replay_blocks rb
-                    JOIN   clusters      cl ON cl.id = rb.id
-                ),
-
-                -- ── Step 5: candidates for deletion ─────────────────────────
-                -- Non-winners in clusters that actually contain >1 member.
-                losers AS (
-                    SELECT r.id
-                    FROM   ranked r
-                    WHERE  r.rn > 1
-                      AND  EXISTS (
-                               SELECT 1 FROM ranked r2
-                               WHERE  r2.cluster_root = r.cluster_root
-                                 AND  r2.rn = 1
-                                 AND  r2.id <> r.id
-                           )
-                ),
-
-                -- ── Step 6: guard — exclude blocks with downstream artifacts ─
-                safe_to_delete AS (
-                    SELECT l.id
-                    FROM   losers l
-                    WHERE  NOT EXISTS (
-                               SELECT 1 FROM {trade_plans} tp
-                               WHERE  tp.block_id = l.id
-                           )
-                      AND  NOT EXISTS (
-                               SELECT 1 FROM {market_snapshots} ms
-                               WHERE  ms.block_id = l.id
-                           )
+                        loser.id
+                    FROM {pressure_blocks} loser
+                    JOIN {pressure_blocks} winner
+                      ON winner.symbol = loser.symbol
+                     AND winner.id <> loser.id
+                     AND winner.pressure_status = 'REPLAY'
+                     AND loser.pressure_status = 'REPLAY'
+                     AND LEAST(winner.end_utc, loser.end_utc) > GREATEST(winner.start_utc, loser.start_utc)
+                    LEFT JOIN {trade_plans} loser_tp ON loser_tp.block_id = loser.id
+                    LEFT JOIN {market_snapshots} loser_ms ON loser_ms.block_id = loser.id
+                    WHERE loser_tp.id IS NULL
+                      AND loser_ms.id IS NULL
+                      AND (
+                            EXTRACT(EPOCH FROM LEAST(winner.end_utc, loser.end_utc) - GREATEST(winner.start_utc, loser.start_utc))
+                            /
+                            NULLIF(
+                                LEAST(
+                                    EXTRACT(EPOCH FROM winner.end_utc - winner.start_utc),
+                                    EXTRACT(EPOCH FROM loser.end_utc - loser.start_utc)
+                                ),
+                                0
+                            )
+                          ) >= 0.9
+                      AND (
+                            CASE WHEN winner.start_utc IS NOT NULL AND winner.end_utc IS NOT NULL
+                                THEN EXTRACT(EPOCH FROM winner.end_utc - winner.start_utc)
+                                ELSE 0 END,
+                            COALESCE(winner.event_count, 0),
+                            CASE COALESCE(winner.pressure_grade, '')
+                                WHEN 'A+' THEN 5
+                                WHEN 'A' THEN 4
+                                WHEN 'A-' THEN 3
+                                WHEN 'B+' THEN 2
+                                WHEN 'C' THEN 1
+                                ELSE 0
+                            END,
+                            winner.end_utc,
+                            winner.id
+                          )
+                          >
+                          (
+                            CASE WHEN loser.start_utc IS NOT NULL AND loser.end_utc IS NOT NULL
+                                THEN EXTRACT(EPOCH FROM loser.end_utc - loser.start_utc)
+                                ELSE 0 END,
+                            COALESCE(loser.event_count, 0),
+                            CASE COALESCE(loser.pressure_grade, '')
+                                WHEN 'A+' THEN 5
+                                WHEN 'A' THEN 4
+                                WHEN 'A-' THEN 3
+                                WHEN 'B+' THEN 2
+                                WHEN 'C' THEN 1
+                                ELSE 0
+                            END,
+                            loser.end_utc,
+                            loser.id
+                          )
                 )
-
-                -- ── Step 7: delete ───────────────────────────────────────────
                 DELETE FROM {pressure_blocks} pb
-                USING  safe_to_delete s
-                WHERE  pb.id = s.id
+                USING candidates
+                WHERE pb.id = candidates.id
                 """
             ).format(
                 pressure_blocks=sql.Identifier(settings.db_schema, "pressure_blocks"),
@@ -654,9 +611,5 @@ async def _migration_011_cleanup_overlapping_replay_pressure_blocks() -> None:
                 market_snapshots=sql.Identifier(settings.db_schema, "market_snapshots"),
             )
         )
-        deleted = cur.rowcount
 
-    logger.info(
-        "migration_011: removed %d overlapping replay pressure_blocks (no downstream artifacts)",
-        deleted,
-    )
+    logger.info("migration_011: overlapping replay pressure_blocks cleaned up conservatively")

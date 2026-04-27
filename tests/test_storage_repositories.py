@@ -428,6 +428,18 @@ def test_get_signal_series_detail_dedupes_exact_raw_blocks(monkeypatch) -> None:
             "finalize_mode": "REPLAY_FINALIZE",
             "trade_plan_id": None,
         },
+        {
+            "id": 28,
+            "symbol": "GBPUSD",
+            "start_utc": datetime(2026, 4, 27, 7, 15, 23, tzinfo=timezone.utc),
+            "end_utc": datetime(2026, 4, 27, 7, 24, 55, tzinfo=timezone.utc),
+            "duration_minutes": 9.53,
+            "event_count": 112,
+            "pressure_grade": "B+",
+            "pressure_status": "REPLAY",
+            "finalize_mode": "REPLAY_FINALIZE",
+            "trade_plan_id": None,
+        },
     ]
 
     class FakeCursor:
