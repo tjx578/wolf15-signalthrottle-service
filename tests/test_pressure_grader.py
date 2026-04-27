@@ -18,7 +18,20 @@ def test_grade_b_plus():
 
 
 def test_grade_c():
-    assert grade_pressure(duration=3, event_count=5, density=1.5, max_gap=200) == "C"
+    # 5m+ but density too low
+    assert grade_pressure(duration=6, event_count=5, density=1.5, max_gap=200) == "C"
+
+
+def test_grade_failed_min_duration_below_5m():
+    # Canonical rule: < 5m is failed, never C.
+    assert (
+        grade_pressure(duration=3, event_count=5, density=1.5, max_gap=200)
+        == "FAILED_MIN_DURATION"
+    )
+    assert (
+        grade_pressure(duration=4.99, event_count=300, density=60, max_gap=10)
+        == "FAILED_MIN_DURATION"
+    )
 
 
 def test_grade_reject():

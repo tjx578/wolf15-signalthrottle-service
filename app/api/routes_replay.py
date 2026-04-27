@@ -8,8 +8,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from ..config import settings
-from ..detector.block_detector import split_blocks
-from ..detector.sequence_builder import group_by_symbol
+from ..detector.sequence_builder import build_canonical_sequences, make_block_hash
 from ..models.log_event import LogEvent
 from ..parser.signalthrottle_parser import parse_signalthrottle
 from ..parser.timestamp_mapper import to_chart_time, to_wita
@@ -92,95 +91,110 @@ async def replay_logs(payload: ReplayPayload):
         else:
             stored += 1
 
-    # Detect blocks per symbol
-    groups = group_by_symbol(events)
+    # Detect canonical sequences over the GLOBAL chronological stream.
+    # We deliberately do not group by symbol first: the canonical rule states
+    # that a different pair appearing closes the previous block, even if the
+    # original pair returns within max_gap_seconds.
+    sequences = build_canonical_sequences(events, settings.max_event_gap_seconds)
     block_results = []
+    blocks_created = 0
+    blocks_updated = 0
     trade_plan_count = 0
 
-    for symbol, sym_events in groups.items():
-        blocks = split_blocks(sym_events, settings.max_event_gap_seconds)
-        for block_events in blocks:
-            metrics = calculate_pressure_metrics(block_events)
-            grade = grade_pressure(
-                duration=metrics["duration_minutes"],
-                event_count=metrics["event_count"],
-                density=metrics["density_per_minute"],
-                max_gap=metrics["max_gap_seconds"],
-            )
+    for seq_events in sequences:
+        symbol = seq_events[0].symbol
+        metrics = calculate_pressure_metrics(seq_events)
+        grade = grade_pressure(
+            duration=metrics["duration_minutes"],
+            event_count=metrics["event_count"],
+            density=metrics["density_per_minute"],
+            max_gap=metrics["max_gap_seconds"],
+        )
 
-            start = block_events[0].timestamp_utc
-            end = block_events[-1].timestamp_utc
+        start = seq_events[0].timestamp_utc
+        end = seq_events[-1].timestamp_utc
+        block_hash = make_block_hash(seq_events)
 
-            block_data = await repo.upsert_active_block(
-                symbol=symbol,
-                start_utc=start,
-                end_utc=end,
-                start_wita=to_wita(start),
-                end_wita=to_wita(end),
-                chart_start_time=to_chart_time(
-                    start, settings.chart_time_offset_hours
-                ),
-                chart_end_time=to_chart_time(
-                    end, settings.chart_time_offset_hours
-                ),
-                duration_minutes=metrics["duration_minutes"],
-                event_count=metrics["event_count"],
-                density_per_minute=metrics["density_per_minute"],
-                avg_gap_seconds=metrics["avg_gap_seconds"],
-                max_gap_seconds=metrics["max_gap_seconds"],
-                pressure_grade=grade,
-                pressure_status="REPLAY",
-                finalize_mode="REPLAY_FINALIZE",
-            )
+        # Idempotent: same block_hash → updates the existing row, never
+        # inserts a duplicate. Replaying the same logs N times yields the
+        # same canonical block set.
+        block_data = await repo.upsert_pressure_block_by_hash(
+            block_hash=block_hash,
+            symbol=symbol,
+            start_utc=start,
+            end_utc=end,
+            start_wita=to_wita(start),
+            end_wita=to_wita(end),
+            chart_start_time=to_chart_time(
+                start, settings.chart_time_offset_hours
+            ),
+            chart_end_time=to_chart_time(
+                end, settings.chart_time_offset_hours
+            ),
+            duration_minutes=metrics["duration_minutes"],
+            event_count=metrics["event_count"],
+            density_per_minute=metrics["density_per_minute"],
+            avg_gap_seconds=metrics["avg_gap_seconds"],
+            max_gap_seconds=metrics["max_gap_seconds"],
+            pressure_grade=grade,
+            pressure_status="REPLAY",
+            finalize_mode="REPLAY_FINALIZE",
+        )
+        if block_data["action"] == "created":
+            blocks_created += 1
+        else:
+            blocks_updated += 1
 
-            block = {
-                "id": block_data["id"],
+        block = {
+            "id": block_data["id"],
+            "symbol": symbol,
+            "start_utc": start,
+            "end_utc": end,
+            "start_wita": to_wita(start),
+            "end_wita": to_wita(end),
+            "chart_start_time": to_chart_time(
+                start, settings.chart_time_offset_hours
+            ),
+            "chart_end_time": to_chart_time(
+                end, settings.chart_time_offset_hours
+            ),
+            "duration_minutes": metrics["duration_minutes"],
+            "event_count": metrics["event_count"],
+            "density_per_minute": metrics["density_per_minute"],
+            "avg_gap_seconds": metrics["avg_gap_seconds"],
+            "max_gap_seconds": metrics["max_gap_seconds"],
+            "pressure_grade": grade,
+            "pressure_status": "REPLAY",
+            "block_relation": None,
+            "finalize_mode": "REPLAY_FINALIZE",
+        }
+
+        trade_plan = await enrich_block_with_market_context(block, repo)
+        if trade_plan:
+            trade_plan_count += 1
+
+        block_results.append(
+            {
                 "symbol": symbol,
-                "start_utc": start,
-                "end_utc": end,
-                "start_wita": to_wita(start),
-                "end_wita": to_wita(end),
-                "chart_start_time": to_chart_time(
-                    start, settings.chart_time_offset_hours
-                ),
-                "chart_end_time": to_chart_time(
-                    end, settings.chart_time_offset_hours
-                ),
-                "duration_minutes": metrics["duration_minutes"],
+                "block_id": block_data["id"],
+                "block_hash": block_hash,
+                "action": block_data["action"],
                 "event_count": metrics["event_count"],
+                "duration_minutes": metrics["duration_minutes"],
                 "density_per_minute": metrics["density_per_minute"],
-                "avg_gap_seconds": metrics["avg_gap_seconds"],
-                "max_gap_seconds": metrics["max_gap_seconds"],
                 "pressure_grade": grade,
-                "pressure_status": "REPLAY",
-                "block_relation": None,
-                "finalize_mode": "REPLAY_FINALIZE",
+                "trade_plan_created": trade_plan is not None,
             }
-
-            trade_plan = await enrich_block_with_market_context(block, repo)
-            if trade_plan:
-                trade_plan_count += 1
-
-            await repo.finalize_block(block_data["id"], "REPLAY_FINALIZE")
-
-            block_results.append(
-                {
-                    "symbol": symbol,
-                    "block_id": block_data["id"],
-                    "event_count": metrics["event_count"],
-                    "duration_minutes": metrics["duration_minutes"],
-                    "density_per_minute": metrics["density_per_minute"],
-                    "pressure_grade": grade,
-                    "trade_plan_created": trade_plan is not None,
-                }
-            )
+        )
 
     return {
         "status": "processed",
         "events_parsed": len(events),
         "events_stored": stored,
         "duplicates_skipped": duplicates,
-        "blocks_detected": len(block_results),
+        "canonical_blocks_detected": len(block_results),
+        "blocks_created": blocks_created,
+        "blocks_updated": blocks_updated,
         "trade_plans_created": trade_plan_count,
         "blocks": block_results,
     }

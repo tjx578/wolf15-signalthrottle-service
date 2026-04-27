@@ -33,7 +33,10 @@ def test_build_plan_a_grade():
     assert result["symbol"] == "USDJPY"
     assert result["pressure_grade"] == "A"
     assert result["execution_grade"] == "A"
-    assert result["signal_bucket"] == "actionable"
+    # A pressure + non-WAIT action -> ready bucket (canonical rule).
+    assert result["signal_bucket"] == "ready"
+    # Owner alert remains restricted to A/A+ + actionable execution.
+    assert result["owner_alert"] is True
     assert result["execution_side"] == "BUY_CONTINUATION"
     assert result["payload"]["block"]["symbol"] == "USDJPY"
     assert "USDJPY" in result["message"]
@@ -84,7 +87,9 @@ def test_build_plan_b_plus_stays_watchlist() -> None:
     result = build_trade_plan(block, snapshot)
 
     assert result["execution_grade"] == "B+"
+    # WAIT-style action keeps signal in watchlist regardless of pressure grade.
     assert result["signal_bucket"] == "watchlist"
+    assert result["owner_alert"] is False
     assert result["execution_side"] == "WAIT_BREAKDOWN_OR_RECLAIM"
 
 
@@ -113,6 +118,9 @@ def test_build_plan_b_plus_strong_phase_gets_trade_plan_ready_grade() -> None:
 
     assert result["pressure_grade"] == "B+"
     assert result["execution_grade"] == "B+"
+    # WAIT_SUPPORT_REACTION_OR_RECLAIM is a wait action so the bucket stays
+    # watchlist; the dashboard's SQL CASE will surface this as
+    # watchlist_trade_plan_pending if no plan, or trade_plan_ready otherwise.
     assert result["signal_bucket"] == "watchlist"
     assert result["action"] == "WAIT_SUPPORT_REACTION_OR_RECLAIM"
     assert result["entry_zone"] == "derived_from_structure"
@@ -140,3 +148,32 @@ def test_build_plan_b_plus_range_mid_stays_wait_state() -> None:
     assert result["execution_grade"] == "C"
     assert result["signal_bucket"] == "watchlist"
     assert result["execution_side"] == "NO_TRADE"
+
+
+def test_build_plan_b_plus_with_actionable_phase_promoted_to_ready() -> None:
+    """Canonical rule: B+ pressure with a non-WAIT action must reach the
+    'ready' bucket so the dashboard surfaces it. Previously this was
+    reserved for A/A+ only, which hid valid B+ plans."""
+    block = {
+        "symbol": "USDJPY",
+        "pressure_grade": "B+",
+        "start_utc": "2026-04-24T02:30:34Z",
+        "end_utc": "2026-04-24T02:42:50Z",
+        "duration_minutes": 12.27,
+        "event_count": 95,
+        "density_per_minute": 7.74,
+        "max_gap_seconds": 38.0,
+        "avg_gap_seconds": 7.7,
+    }
+    snapshot = {
+        "price_at_end": 159.42,
+        "chart_bias": "BULLISH_MACRO_RANGE",
+        "chart_phase": "PIVOT_RECLAIM_CONTINUATION",
+        "action": "BUY_ON_RETEST_OR_RECLAIM_HOLD",
+    }
+
+    result = build_trade_plan(block, snapshot)
+
+    assert result["pressure_grade"] == "B+"
+    assert result["signal_bucket"] == "ready"
+    assert result["owner_alert"] is False

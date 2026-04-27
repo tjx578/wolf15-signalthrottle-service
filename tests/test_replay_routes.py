@@ -15,6 +15,7 @@ class FakeSignalRepository:
     signal_event_id = 0
     block_id = 0
     trade_plan_id = 0
+    blocks_by_hash: dict[str, dict] = {}
 
     @classmethod
     def reset(cls) -> None:
@@ -22,6 +23,7 @@ class FakeSignalRepository:
         cls.signal_event_id = 0
         cls.block_id = 0
         cls.trade_plan_id = 0
+        cls.blocks_by_hash = {}
 
     async def insert_signal_event(self, **kwargs) -> dict:
         self.__class__.signal_event_id += 1
@@ -30,6 +32,30 @@ class FakeSignalRepository:
     async def upsert_active_block(self, **kwargs) -> dict:
         self.__class__.block_id += 1
         return {"id": self.__class__.block_id, "action": "created"}
+
+    async def upsert_pressure_block_by_hash(self, **kwargs) -> dict:
+        block_hash = kwargs.get("block_hash") or ""
+        existing = self.__class__.blocks_by_hash.get(block_hash)
+        if existing is not None:
+            # Idempotent path: same hash returns the same block id without
+            # increasing the block counter (mirrors the SQL ON CONFLICT path).
+            return {
+                "id": existing["id"],
+                "action": "unchanged",
+                "block_hash": block_hash,
+                "pressure_status": existing["pressure_status"],
+                "pressure_grade": existing["pressure_grade"],
+            }
+        self.__class__.block_id += 1
+        record = {
+            "id": self.__class__.block_id,
+            "action": "created",
+            "block_hash": block_hash,
+            "pressure_status": kwargs.get("pressure_status"),
+            "pressure_grade": kwargs.get("pressure_grade"),
+        }
+        self.__class__.blocks_by_hash[block_hash] = record
+        return record
 
     async def finalize_block(self, block_id: int, finalize_mode: str) -> None:
         return None
@@ -113,7 +139,7 @@ def test_replay_logs_creates_trade_plan_and_latest_signal(monkeypatch) -> None:
     assert replay_response.status_code == 200
     replay_payload = replay_response.json()
     assert replay_payload["status"] == "processed"
-    assert replay_payload["blocks_detected"] == 1
+    assert replay_payload["canonical_blocks_detected"] == 1
     assert replay_payload["trade_plans_created"] == 1
     assert replay_payload["blocks"][0]["pressure_grade"] == "B+"
     assert replay_payload["blocks"][0]["trade_plan_created"] is True
@@ -154,5 +180,45 @@ def test_replay_logs_accepts_structured_json_lines(monkeypatch) -> None:
     replay_payload = replay_response.json()
     assert replay_payload["status"] == "processed"
     assert replay_payload["events_parsed"] == 2
-    assert replay_payload["blocks_detected"] == 1
+    assert replay_payload["canonical_blocks_detected"] == 1
     assert replay_payload["blocks"][0]["symbol"] == "GBPUSD"
+
+def test_replay_logs_is_idempotent_at_block_level(monkeypatch) -> None:
+    """Replaying the same fixture twice MUST NOT create duplicate
+    pressure_blocks. The block_hash unique index enforces this at the
+    storage layer; the route should report the second pass as
+    canonical_blocks_detected==1 with blocks_created==0 and the existing
+    block id reused."""
+    FakeSignalRepository.reset()
+    monkeypatch.setattr(lifecycle, "init_db", _noop)
+    monkeypatch.setattr(lifecycle, "run_migrations", _noop)
+    monkeypatch.setattr(lifecycle, "close_db", _noop)
+    monkeypatch.setattr(routes_replay, "SignalRepository", FakeSignalRepository)
+    monkeypatch.setattr(routes_signals, "SignalRepository", FakeSignalRepository)
+    monkeypatch.setattr(
+        routes_replay,
+        "enrich_block_with_market_context",
+        fake_enrich_block_with_market_context,
+    )
+
+    app = create_app()
+    client = TestClient(app)
+    logs = Path("tests/fixtures/usdjpy_bplus_replay.log").read_text(encoding="utf-8")
+
+    first = client.post("/replay/logs", json={"logs": logs}).json()
+    blocks_after_first = FakeSignalRepository.block_id
+    hashes_after_first = set(FakeSignalRepository.blocks_by_hash.keys())
+
+    second = client.post("/replay/logs", json={"logs": logs}).json()
+
+    assert first["status"] == "processed"
+    assert second["status"] == "processed"
+    # Same canonical detection on both passes.
+    assert first["canonical_blocks_detected"] == second["canonical_blocks_detected"]
+    # The hash registry must not grow on the second pass.
+    assert FakeSignalRepository.blocks_by_hash.keys() == hashes_after_first
+    # No additional block ids consumed on the second pass.
+    assert FakeSignalRepository.block_id == blocks_after_first
+    # All second-pass blocks should report the unchanged action.
+    actions = {b.get("action") for b in second["blocks"]}
+    assert actions == {"unchanged"}

@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+# Canonical minimum duration (in minutes) for a pressure block to even be
+# considered a valid signal candidate. Anything shorter is reported as
+# FAILED_MIN_DURATION so dashboards can show it in a separate "failed"
+# bucket without confusing it with weak-but-valid C-grade pressure.
+MIN_VALID_DURATION_MINUTES = 5.0
+
 
 def grade_pressure(
     duration: float,
@@ -7,6 +13,9 @@ def grade_pressure(
     density: float,
     max_gap: float | None,
 ) -> str:
+    if duration < MIN_VALID_DURATION_MINUTES:
+        return "FAILED_MIN_DURATION"
+
     if max_gap is None:
         return "C"
 

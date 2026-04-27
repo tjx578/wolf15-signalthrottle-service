@@ -48,6 +48,12 @@ CREATE TABLE IF NOT EXISTS signalthrottle.pressure_blocks (
     previous_block_id BIGINT,
     finalize_mode TEXT,
 
+    block_hash TEXT,
+
+    market_context_status TEXT DEFAULT 'NOT_REQUESTED',
+    trade_plan_status TEXT DEFAULT 'NOT_REQUIRED',
+    pending_reason TEXT,
+
     is_active BOOLEAN DEFAULT FALSE,
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     created_at TIMESTAMPTZ DEFAULT NOW()
@@ -61,6 +67,9 @@ ON signalthrottle.pressure_blocks(is_active) WHERE is_active = TRUE;
 
 CREATE INDEX IF NOT EXISTS idx_st_pressure_blocks_active
 ON signalthrottle.pressure_blocks(is_active, end_utc DESC);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_st_pressure_blocks_block_hash
+ON signalthrottle.pressure_blocks(block_hash) WHERE block_hash IS NOT NULL;
 
 -- -------------------------------------------------------
 

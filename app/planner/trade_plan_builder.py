@@ -24,6 +24,17 @@ WAIT_ACTIONS = {
 }
 
 
+def _is_wait_action(action: str) -> bool:
+    """An action counts as 'wait' if it is in WAIT_ACTIONS or starts with the
+    WAIT_ prefix used by the action_mapper for context-pending phases
+    (e.g. WAIT_SUPPORT_REACTION_OR_RECLAIM, WAIT_BREAKDOWN_OR_RECLAIM)."""
+    if not action:
+        return True
+    if action in WAIT_ACTIONS:
+        return True
+    return action.startswith("WAIT_") or action.startswith("NO_TRADE")
+
+
 def grade_execution(pressure_grade: str, chart_phase: str) -> str:
     if chart_phase in STRONG_PHASES:
         if pressure_grade in {"A+", "A", "A-"}:
@@ -69,7 +80,7 @@ def pressure_status_from_grade(pressure_grade: str) -> str:
 
 
 def is_actionable_signal(execution_grade: str, action: str) -> bool:
-    return execution_grade in {"B+", "A", "A+"} and action not in WAIT_ACTIONS
+    return execution_grade in {"B+", "A", "A+"} and not _is_wait_action(action)
 
 
 def build_message(
@@ -101,8 +112,28 @@ def build_trade_plan(block: dict[str, Any], snapshot: dict[str, Any]) -> dict[st
 
     execution_grade = grade_execution(pressure_grade, chart_phase)
     execution_side = map_execution_side(chart_phase)
-    actionable = pressure_grade in {"A", "A+"} and is_actionable_signal(
-        execution_grade, action
+
+    # Canonical rule: any B+/A-/A/A+ block that has reached this point HAS a
+    # trade plan, therefore it belongs in the "ready" bucket on the dashboard.
+    # The previous behavior of demoting B+/A- to "watchlist" hid valid plans.
+    valid_grades = {"B+", "A-", "A", "A+"}
+    is_valid_pressure = pressure_grade in valid_grades
+    has_trade_context = not _is_wait_action(action)
+    if is_valid_pressure and has_trade_context:
+        signal_bucket = "ready"
+    elif is_valid_pressure:
+        # Plan exists but no actionable edge yet — still a watchlist row, the
+        # dashboard will surface the WAIT action and reason.
+        signal_bucket = "watchlist"
+    else:
+        signal_bucket = "watchlist"
+
+    # Owner-alert eligibility (e.g. Telegram push) stays stricter: only A/A+
+    # with an actionable execution should ping the owner. B+ and A- continue
+    # to live in the dashboard but should not generate noisy alerts.
+    owner_alert = (
+        pressure_grade in {"A", "A+"}
+        and is_actionable_signal(execution_grade, action)
     )
 
     price_at_end = snapshot.get("price_at_end")
@@ -115,7 +146,8 @@ def build_trade_plan(block: dict[str, Any], snapshot: dict[str, Any]) -> dict[st
         "symbol": block["symbol"],
         "signal_type": "SIGNAL_THROTTLE_PRESSURE",
         "pressure_status": pressure_status_from_grade(pressure_grade),
-        "signal_bucket": "actionable" if actionable else "watchlist",
+        "signal_bucket": signal_bucket,
+        "owner_alert": owner_alert,
         "pressure_grade": pressure_grade,
         "execution_grade": execution_grade,
         "execution_side": execution_side,

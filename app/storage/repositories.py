@@ -233,6 +233,146 @@ class SignalRepository:
                 (symbol,),
             )
 
+    async def finalize_other_active_blocks_on_pair_replacement(
+        self, symbol: str
+    ) -> list[dict]:
+        """When a different pair becomes active, soft-finalize every other
+        active block immediately. The previous block is *closed*, not merely
+        cooling, because the canonical rule states "pair replacement closes
+        the block."
+
+        Returns the list of finalized blocks (id + symbol) so callers can run
+        downstream enrichment or auditing.
+        """
+        async with get_cursor() as cur:
+            await cur.execute(
+                """
+                UPDATE pressure_blocks
+                SET is_active = FALSE,
+                    pressure_status = 'SOFT_FINALIZED',
+                    finalize_mode = 'PAIR_REPLACEMENT',
+                    updated_at = NOW()
+                WHERE is_active = TRUE
+                  AND symbol <> %s
+                RETURNING id, symbol
+                """,
+                (symbol,),
+            )
+            rows = await cur.fetchall()
+        for row in rows:
+            await self.refresh_pressure_series(symbol=row["symbol"])
+        return rows
+
+    async def upsert_pressure_block_by_hash(
+        self,
+        *,
+        block_hash: str,
+        symbol: str,
+        start_utc: datetime,
+        end_utc: datetime,
+        start_wita: str | None = None,
+        end_wita: str | None = None,
+        chart_start_time: str | None = None,
+        chart_end_time: str | None = None,
+        duration_minutes: float,
+        event_count: int,
+        density_per_minute: float,
+        avg_gap_seconds: float | None = None,
+        max_gap_seconds: float | None = None,
+        pressure_grade: str,
+        pressure_status: str | None = None,
+        block_relation: str | None = None,
+        previous_block_id: int | None = None,
+        finalize_mode: str | None = None,
+    ) -> dict:
+        """Idempotent block upsert keyed on canonical block_hash.
+
+        Re-replaying the same logs produces the same hash and therefore
+        updates the existing row instead of inserting a duplicate. is_active
+        is forced to FALSE because hash-based writes only happen for
+        finalized canonical sequences (replay path).
+        """
+        async with get_cursor() as cur:
+            await cur.execute(
+                """
+                SELECT id FROM pressure_blocks WHERE block_hash = %s
+                """,
+                (block_hash,),
+            )
+            existing = await cur.fetchone()
+
+            if existing:
+                await cur.execute(
+                    """
+                    UPDATE pressure_blocks SET
+                        symbol = %s,
+                        start_utc = %s, end_utc = %s,
+                        start_wita = %s, end_wita = %s,
+                        chart_start_time = %s, chart_end_time = %s,
+                        last_event_utc = %s,
+                        duration_minutes = %s, event_count = %s,
+                        density_per_minute = %s, avg_gap_seconds = %s,
+                        max_gap_seconds = %s, pressure_grade = %s,
+                        pressure_status = %s, block_relation = %s,
+                        previous_block_id = %s, finalize_mode = %s,
+                        is_active = FALSE,
+                        updated_at = NOW()
+                    WHERE id = %s
+                    RETURNING id
+                    """,
+                    (
+                        symbol, start_utc, end_utc,
+                        start_wita, end_wita,
+                        chart_start_time, chart_end_time,
+                        end_utc,
+                        duration_minutes, event_count,
+                        density_per_minute, avg_gap_seconds,
+                        max_gap_seconds, pressure_grade,
+                        pressure_status, block_relation,
+                        previous_block_id, finalize_mode,
+                        existing["id"],
+                    ),
+                )
+                row = await cur.fetchone()
+                assert row is not None
+                action = "updated"
+            else:
+                await cur.execute(
+                    """
+                    INSERT INTO pressure_blocks
+                        (symbol, start_utc, end_utc, start_wita, end_wita,
+                         chart_start_time, chart_end_time, last_event_utc,
+                         duration_minutes, event_count, density_per_minute,
+                         avg_gap_seconds, max_gap_seconds,
+                         pressure_grade, pressure_status, block_relation,
+                         previous_block_id, finalize_mode, block_hash,
+                         is_active)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,FALSE)
+                    RETURNING id
+                    """,
+                    (
+                        symbol, start_utc, end_utc, start_wita, end_wita,
+                        chart_start_time, chart_end_time,
+                        end_utc,
+                        duration_minutes, event_count, density_per_minute,
+                        avg_gap_seconds, max_gap_seconds,
+                        pressure_grade, pressure_status, block_relation,
+                        previous_block_id, finalize_mode, block_hash,
+                    ),
+                )
+                row = await cur.fetchone()
+                assert row is not None
+                action = "created"
+
+        await self.refresh_pressure_series(symbol=symbol)
+        return {
+            "id": row["id"],
+            "action": action,
+            "pressure_status": pressure_status,
+            "pressure_grade": pressure_grade,
+            "block_hash": block_hash,
+        }
+
     async def upsert_live_block_from_event(
         self,
         event: LogEvent,
@@ -240,7 +380,10 @@ class SignalRepository:
         max_event_gap_seconds: int,
         chart_offset_hours: int,
     ) -> dict:
-        await self.mark_other_active_blocks_cooling(event.symbol)
+        # Canonical rule: a different pair becoming active CLOSES every other
+        # active block. We finalize them with PAIR_REPLACEMENT so they cannot
+        # be silently re-extended by a late event of the previous pair.
+        await self.finalize_other_active_blocks_on_pair_replacement(event.symbol)
 
         existing = await self.get_active_block(event.symbol)
         previous_block_id: int | None = None
@@ -302,6 +445,42 @@ class SignalRepository:
                 WHERE id = %s
                 """,
                 (finalize_mode, block_id),
+            )
+
+    async def mark_block_market_context_status(
+        self,
+        block_id: int,
+        *,
+        market_context_status: str,
+        trade_plan_status: str,
+        pending_reason: str | None = None,
+    ) -> None:
+        """Persist enrichment outcome on the block itself.
+
+        Status values used:
+          - market_context_status:
+              REQUESTED, READY, OHLC_FETCH_FAILED, FINNHUB_KEY_MISSING,
+              DISABLED, PHASE_UNCLASSIFIED
+          - trade_plan_status:
+              NOT_REQUIRED, REQUIRED, PENDING_MARKET_CONTEXT, READY,
+              NO_TRADE_CONTEXT
+        """
+        async with get_cursor() as cur:
+            await cur.execute(
+                """
+                UPDATE pressure_blocks
+                SET market_context_status = %s,
+                    trade_plan_status = %s,
+                    pending_reason = %s,
+                    updated_at = NOW()
+                WHERE id = %s
+                """,
+                (
+                    market_context_status,
+                    trade_plan_status,
+                    pending_reason,
+                    block_id,
+                ),
             )
 
     async def get_active_or_cooling_blocks(self) -> list[dict]:
@@ -734,16 +913,18 @@ class SignalRepository:
                     tp.signal_bucket,
                     tp.pressure_status AS trade_plan_pressure_status,
                     CASE
-                        WHEN pb.pressure_grade IN ('B+', 'A-', 'A', 'A+') AND tp.id IS NULL THEN 'TRADE_PLAN_REQUIRED'
                         WHEN pb.pressure_grade IN ('B+', 'A-', 'A', 'A+') AND tp.id IS NOT NULL THEN 'READY'
+                        WHEN pb.pressure_grade IN ('B+', 'A-', 'A', 'A+') THEN COALESCE(pb.trade_plan_status, 'TRADE_PLAN_REQUIRED')
                         ELSE 'NOT_REQUIRED'
                     END AS trade_plan_status,
                     CASE
-                        WHEN pb.pressure_grade IN ('B+', 'A-', 'A', 'A+') AND tp.id IS NULL THEN 'PENDING_OR_FAILED'
                         WHEN pb.pressure_grade IN ('B+', 'A-', 'A', 'A+') AND tp.id IS NOT NULL THEN 'READY'
+                        WHEN pb.pressure_grade IN ('B+', 'A-', 'A', 'A+') THEN COALESCE(pb.market_context_status, 'PENDING_OR_FAILED')
                         ELSE 'NOT_REQUIRED'
                     END AS market_context_status,
+                    pb.pending_reason,
                     CASE
+                        WHEN pb.pressure_grade = 'FAILED_MIN_DURATION' THEN 'failed'
                         WHEN pb.pressure_grade NOT IN ('B+', 'A-', 'A', 'A+') THEN 'radar_below_threshold'
                         WHEN tp.id IS NULL THEN 'watchlist_trade_plan_pending'
                         ELSE 'trade_plan_ready'
@@ -755,10 +936,14 @@ class SignalRepository:
                         ELSE 'NO'
                     END AS owner_alert,
                     CASE
+                        WHEN pb.pressure_grade = 'FAILED_MIN_DURATION' THEN
+                            pb.symbol || ' pressure failed minimum duration: ' || ROUND(pb.duration_minutes::numeric, 2) || 'm < ' || %s || 'm.'
                         WHEN pb.pressure_grade NOT IN ('B+', 'A-', 'A', 'A+') AND pb.duration_minutes < %s THEN
                             pb.symbol || ' ' || pb.pressure_grade || ' pressure is below threshold. Duration ' || ROUND(pb.duration_minutes::numeric, 2) || 'm is below minimum radar threshold ' || %s || 'm.'
                         WHEN pb.pressure_grade NOT IN ('B+', 'A-', 'A', 'A+') THEN
                             pb.symbol || ' ' || pb.pressure_grade || ' pressure is below B+. Visible as radar only, not yet eligible for trade-plan processing.'
+                        WHEN tp.id IS NULL AND pb.pending_reason IS NOT NULL THEN
+                            pb.symbol || ' ' || pb.pressure_grade || ' trade plan pending: ' || pb.pending_reason
                         WHEN tp.id IS NULL THEN
                             pb.symbol || ' ' || pb.pressure_grade || ' pressure is valid. Trade plan is required and still pending market-context enrichment.'
                         ELSE COALESCE(tp.message, pb.symbol || ' ' || pb.pressure_grade || ' pressure has a ready trade plan.')
@@ -785,7 +970,12 @@ class SignalRepository:
                 ORDER BY pb.end_utc DESC, pb.id DESC
                 LIMIT %s
                 """,
-                (settings.min_radar_minutes, settings.min_radar_minutes, fetch_limit),
+                (
+                    settings.min_radar_minutes,  # FAILED_MIN_DURATION threshold display
+                    settings.min_radar_minutes,
+                    settings.min_radar_minutes,
+                    fetch_limit,
+                ),
             )
             rows = await cur.fetchall()
             return _select_latest_signal_rows(rows, bucket=normalized_bucket, limit=limit)
@@ -1225,8 +1415,12 @@ def _matches_signal_bucket(row: dict, bucket: str) -> bool:
 
     if bucket == "all":
         return True
+    if bucket == "failed":
+        return pressure_grade == "FAILED_MIN_DURATION"
     if bucket == "radar":
-        return pressure_grade not in valid_grades
+        # Radar = anything that did not promote to a valid trade-plan grade
+        # but still represents real (not failed) pressure.
+        return pressure_grade not in valid_grades and pressure_grade != "FAILED_MIN_DURATION"
     if bucket == "watchlist":
         return pressure_grade in valid_grades and not has_trade_plan
     if bucket == "ready":

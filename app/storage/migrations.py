@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from typing import LiteralString, cast
 
 from psycopg import sql
 
@@ -22,6 +23,8 @@ async def run_migrations() -> list[dict]:
         _migration_003_ensure_realtime_columns,
         _migration_004_ensure_signal_outcomes_columns,
         _migration_005_ensure_pressure_series_table,
+        _migration_006_ensure_pressure_blocks_block_hash,
+        _migration_007_ensure_block_pending_reason_columns,
     ]
     results: list[dict] = []
     for m in migrations:
@@ -60,7 +63,10 @@ async def _ensure_column(table_name: str, column_name: str, type_sql: str) -> No
             .format(
                 sql.Identifier(settings.db_schema, table_name),
                 sql.Identifier(column_name),
-                sql.SQL(type_sql),
+                # type_sql is sourced exclusively from hard-coded literals in
+                # this module (never user input); cast to LiteralString to
+                # satisfy psycopg's SQL-injection-safe type signature.
+                sql.SQL(cast(LiteralString, type_sql)),
             )
         )
 
@@ -71,7 +77,7 @@ async def _ensure_index(index_name: str, table_name: str, columns_sql: str) -> N
             sql.SQL("CREATE INDEX IF NOT EXISTS {} ON {} ({})").format(
                 sql.Identifier(index_name),
                 sql.Identifier(settings.db_schema, table_name),
-                sql.SQL(columns_sql),
+                sql.SQL(cast(LiteralString, columns_sql)),
             )
         )
 
@@ -165,7 +171,7 @@ async def _ensure_unique_index(index_name: str, table_name: str, columns_sql: st
             sql.SQL("CREATE UNIQUE INDEX IF NOT EXISTS {} ON {} ({})").format(
                 sql.Identifier(index_name),
                 sql.Identifier(settings.db_schema, table_name),
-                sql.SQL(columns_sql),
+                sql.SQL(cast(LiteralString, columns_sql)),
             )
         )
 
@@ -297,3 +303,36 @@ async def _migration_005_ensure_pressure_series_table() -> None:
         "latest_block_id",
     )
     logger.info("migration_005: pressure_series table ensured")
+
+
+async def _migration_006_ensure_pressure_blocks_block_hash() -> None:
+    """Add canonical block_hash column + partial unique index for idempotent
+    block writes during replay."""
+    await _ensure_column("pressure_blocks", "block_hash", "TEXT")
+    # Partial unique index: only enforce uniqueness on non-NULL hashes so that
+    # legacy rows without a hash do not block the migration.
+    async with get_cursor() as cur:
+        await cur.execute(
+            sql.SQL(
+                "CREATE UNIQUE INDEX IF NOT EXISTS {} ON {} (block_hash) "
+                "WHERE block_hash IS NOT NULL"
+            ).format(
+                sql.Identifier("uq_st_pressure_blocks_block_hash"),
+                sql.Identifier(settings.db_schema, "pressure_blocks"),
+            )
+        )
+    logger.info("migration_006: pressure_blocks.block_hash ensured")
+
+
+async def _migration_007_ensure_block_pending_reason_columns() -> None:
+    """Add status/reason columns so B+ blocks whose enrichment fails do not
+    silently disappear from the dashboard. Default values keep legacy rows
+    backward-compatible."""
+    columns = [
+        ("market_context_status", "TEXT DEFAULT 'NOT_REQUESTED'"),
+        ("trade_plan_status", "TEXT DEFAULT 'NOT_REQUIRED'"),
+        ("pending_reason", "TEXT"),
+    ]
+    for column_name, type_sql in columns:
+        await _ensure_column("pressure_blocks", column_name, type_sql)
+    logger.info("migration_007: pressure_blocks pending-reason columns ensured")
