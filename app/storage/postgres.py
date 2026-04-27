@@ -13,6 +13,7 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 _pool: "psycopg.AsyncConnection[DictRow] | None" = None
+_LEGACY_BOOTSTRAP_SENTINEL_TABLE = "pressure_blocks"
 
 
 async def get_connection() -> "psycopg.AsyncConnection[DictRow]":
@@ -50,14 +51,45 @@ async def get_cursor() -> AsyncIterator["psycopg.AsyncCursor[DictRow]"]:
     await conn.commit()
 
 
+async def _table_exists(
+    conn: "psycopg.AsyncConnection[DictRow]",
+    table_name: str,
+) -> bool:
+    async with conn.cursor(row_factory=dict_row) as cur:
+        await cur.execute(
+            """
+            SELECT EXISTS (
+                SELECT 1
+                FROM information_schema.tables
+                WHERE table_schema = %s AND table_name = %s
+            ) AS table_exists
+            """,
+            (settings.db_schema, table_name),
+        )
+        row = await cur.fetchone()
+    return bool(row and row.get("table_exists"))
+
+
 async def init_db() -> None:
-    """Run schema.sql to ensure all tables exist."""
+    """Run schema.sql only for fresh databases.
+
+    Existing legacy databases already have the base tables, but may not yet have
+    newer columns referenced by indexes inside schema.sql. In that case we skip
+    the base bootstrap and let additive migrations bring the schema forward.
+    """
     from pathlib import Path
+
+    conn = await get_connection()
+    if await _table_exists(conn, _LEGACY_BOOTSTRAP_SENTINEL_TABLE):
+        logger.info(
+            "Existing %s table detected; skipping base schema bootstrap",
+            _LEGACY_BOOTSTRAP_SENTINEL_TABLE,
+        )
+        return
 
     schema_path = Path(__file__).parent / "schema.sql"
     schema_sql = schema_path.read_text(encoding="utf-8")
 
-    conn = await get_connection()
     try:
         async with conn.cursor() as cur:
             await cur.execute(schema_sql)  # type: ignore[arg-type]

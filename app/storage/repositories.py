@@ -1388,20 +1388,56 @@ def _select_latest_signal_rows(
     bucket: str,
     limit: int | None = None,
 ) -> list[dict]:
-    collapsed: list[dict] = []
-    seen_symbols: set[Any] = set()
-
-    for row in rows:
-        symbol = row.get("symbol")
-        if symbol in seen_symbols:
-            continue
-        seen_symbols.add(symbol)
-        collapsed.append(row)
+    collapsed = _select_latest_series_signal_rows(
+        rows,
+        merge_gap_seconds=settings.max_event_gap_seconds,
+    )
 
     filtered = [row for row in collapsed if _matches_signal_bucket(row, bucket)]
     if limit is None:
         return filtered
     return filtered[:limit]
+
+
+def _select_latest_series_signal_rows(
+    rows: list[dict],
+    *,
+    merge_gap_seconds: int,
+) -> list[dict]:
+    merged_series = _merge_pressure_series(rows, merge_gap_seconds=merge_gap_seconds)
+    rows_by_block_id = {
+        _row_block_id(row): row
+        for row in rows
+        if _row_block_id(row) is not None
+    }
+
+    series_rows: list[dict] = []
+    for series in merged_series:
+        latest_block_id = series.get("latest_block_id")
+        if latest_block_id is None:
+            continue
+        representative = dict(rows_by_block_id.get(latest_block_id) or {})
+        if not representative:
+            continue
+        representative.update(
+            {
+                "block_id": latest_block_id,
+                "start_utc": series["start_utc"],
+                "end_utc": series["end_utc"],
+                "duration_minutes": series["duration_minutes"],
+                "event_count": series["event_count"],
+                "density_per_minute": series["density_per_minute"],
+                "max_gap_seconds": series["max_gap_seconds"],
+                "block_count": series["block_count"],
+                "block_ids": series["block_ids"],
+                "latest_block_id": latest_block_id,
+                "latest_pressure_grade": series["latest_pressure_grade"],
+                "best_pressure_grade": series["best_pressure_grade"],
+            }
+        )
+        series_rows.append(representative)
+
+    return series_rows
 
 
 def _matches_signal_bucket(row: dict, bucket: str) -> bool:
@@ -1440,6 +1476,7 @@ def _merge_pressure_series(
     merge_gap_seconds: int,
     limit: int | None = None,
 ) -> list[dict]:
+    rows = _dedupe_exact_pressure_block_rows(rows)
     if not rows:
         return []
 
@@ -1473,7 +1510,6 @@ def _merge_pressure_series(
         if gap_seconds <= merge_gap_seconds:
             current["start_utc"] = min(current["start_utc"], start_utc)
             current["end_utc"] = max(current["end_utc"], end_utc)
-            current["event_count"] += int(row.get("event_count") or 0)
             current["block_count"] += 1
             current["block_ids"].append(block_id)
             current["max_gap_seconds"] = max(
@@ -1481,6 +1517,16 @@ def _merge_pressure_series(
                 float(row.get("max_gap_seconds") or 0),
                 max(gap_seconds, 0),
             )
+            if start_utc <= current["latest_end_utc"]:
+                # Overlapping windows from replay are alternative reconstructions
+                # of the same underlying pressure sequence. Keep the widest
+                # coverage instead of double-counting events.
+                current["event_count"] = max(
+                    current["event_count"],
+                    int(row.get("event_count") or 0),
+                )
+            else:
+                current["event_count"] += int(row.get("event_count") or 0)
             if end_utc >= current["latest_end_utc"]:
                 current["latest_end_utc"] = end_utc
                 current["latest_block_id"] = block_id
@@ -1523,6 +1569,45 @@ def _init_pressure_series(row: dict, block_id: Any) -> dict[str, Any]:
         "is_active": row.get("is_active"),
         "max_gap_seconds": float(row.get("max_gap_seconds") or 0),
     }
+
+
+def _dedupe_exact_pressure_block_rows(rows: list[dict]) -> list[dict]:
+    deduped: dict[tuple[Any, ...], dict] = {}
+    for row in rows:
+        key = _pressure_block_identity(row)
+        existing = deduped.get(key)
+        if existing is None or _pressure_block_order_key(row) > _pressure_block_order_key(existing):
+            deduped[key] = row
+    return list(deduped.values())
+
+
+def _pressure_block_identity(row: dict) -> tuple[Any, ...]:
+    block_hash = row.get("block_hash")
+    if block_hash:
+        return ("block_hash", block_hash)
+    return (
+        "natural",
+        row.get("symbol"),
+        row.get("start_utc"),
+        row.get("end_utc"),
+        row.get("event_count"),
+        row.get("duration_minutes"),
+        row.get("pressure_grade"),
+        row.get("pressure_status"),
+        row.get("finalize_mode"),
+    )
+
+
+def _pressure_block_order_key(row: dict) -> tuple[Any, ...]:
+    return (
+        row.get("end_utc"),
+        row.get("start_utc"),
+        _row_block_id(row) or 0,
+    )
+
+
+def _row_block_id(row: dict) -> Any:
+    return row.get("id") or row.get("block_id")
 
 
 def _finalize_pressure_series(series: dict[str, Any]) -> dict[str, Any]:

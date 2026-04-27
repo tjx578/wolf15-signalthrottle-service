@@ -65,7 +65,7 @@ def test_select_latest_signal_rows_collapses_overlapping_same_symbol_windows() -
     deduped = _select_latest_signal_rows(rows, bucket="all")
 
     assert len(deduped) == 1
-    assert deduped[0]["block_id"] == 25
+    assert deduped[0]["block_id"] == 23
 
 
 def test_select_latest_signal_rows_with_limit_keeps_next_unique_symbol() -> None:
@@ -168,3 +168,115 @@ def test_merge_pressure_series_keeps_separate_series_after_hard_gap() -> None:
 
     assert len(merged) == 2
     assert {row["latest_block_id"] for row in merged} == {20, 21}
+
+
+def test_merge_pressure_series_dedupes_identical_replay_rows_and_preserves_max_event_count() -> None:
+    rows = [
+        {
+            "id": 10,
+            "symbol": "EURCHF",
+            "start_utc": datetime(2026, 4, 27, 6, 57, 13, tzinfo=timezone.utc),
+            "end_utc": datetime(2026, 4, 27, 7, 14, 50, tzinfo=timezone.utc),
+            "duration_minutes": 17.62,
+            "event_count": 117,
+            "max_gap_seconds": 61.0,
+            "pressure_grade": "B+",
+            "pressure_status": "REPLAY",
+            "finalize_mode": "REPLAY_FINALIZE",
+            "is_active": False,
+        },
+        {
+            "id": 11,
+            "symbol": "EURCHF",
+            "start_utc": datetime(2026, 4, 27, 6, 57, 13, tzinfo=timezone.utc),
+            "end_utc": datetime(2026, 4, 27, 7, 14, 50, tzinfo=timezone.utc),
+            "duration_minutes": 17.62,
+            "event_count": 117,
+            "max_gap_seconds": 61.0,
+            "pressure_grade": "B+",
+            "pressure_status": "REPLAY",
+            "finalize_mode": "REPLAY_FINALIZE",
+            "is_active": False,
+        },
+        {
+            "id": 12,
+            "symbol": "EURCHF",
+            "start_utc": datetime(2026, 4, 27, 6, 57, 13, tzinfo=timezone.utc),
+            "end_utc": datetime(2026, 4, 27, 7, 14, 50, tzinfo=timezone.utc),
+            "duration_minutes": 17.62,
+            "event_count": 117,
+            "max_gap_seconds": 61.0,
+            "pressure_grade": "B+",
+            "pressure_status": "REPLAY",
+            "finalize_mode": "REPLAY_FINALIZE",
+            "is_active": False,
+        },
+        {
+            "id": 9,
+            "symbol": "EURCHF",
+            "start_utc": datetime(2026, 4, 27, 6, 57, 22, tzinfo=timezone.utc),
+            "end_utc": datetime(2026, 4, 27, 7, 15, 17, tzinfo=timezone.utc),
+            "duration_minutes": 17.92,
+            "event_count": 118,
+            "max_gap_seconds": 61.0,
+            "pressure_grade": "B+",
+            "pressure_status": "REPLAY",
+            "finalize_mode": "REPLAY_FINALIZE",
+            "is_active": False,
+        },
+    ]
+
+    merged = _merge_pressure_series(rows, merge_gap_seconds=300)
+
+    assert len(merged) == 1
+    assert merged[0]["start_utc"] == datetime(2026, 4, 27, 6, 57, 13, tzinfo=timezone.utc)
+    assert merged[0]["end_utc"] == datetime(2026, 4, 27, 7, 15, 17, tzinfo=timezone.utc)
+    assert merged[0]["event_count"] == 118
+    assert merged[0]["block_count"] == 2
+    assert merged[0]["latest_block_id"] == 9
+
+
+def test_select_latest_signal_rows_uses_one_series_for_overlapping_replay_blocks() -> None:
+    rows = [
+        {
+            "block_id": 12,
+            "symbol": "EURCHF",
+            "start_utc": datetime(2026, 4, 27, 6, 57, 13, tzinfo=timezone.utc),
+            "end_utc": datetime(2026, 4, 27, 7, 14, 50, tzinfo=timezone.utc),
+            "duration_minutes": 17.62,
+            "event_count": 117,
+            "density_per_minute": 6.64,
+            "max_gap_seconds": 61.0,
+            "pressure_grade": "B+",
+            "pressure_status": "REPLAY",
+            "finalize_mode": "REPLAY_FINALIZE",
+            "trade_plan_id": None,
+            "execution_grade": None,
+            "action": None,
+        },
+        {
+            "block_id": 9,
+            "symbol": "EURCHF",
+            "start_utc": datetime(2026, 4, 27, 6, 57, 22, tzinfo=timezone.utc),
+            "end_utc": datetime(2026, 4, 27, 7, 15, 17, tzinfo=timezone.utc),
+            "duration_minutes": 17.92,
+            "event_count": 118,
+            "density_per_minute": 6.58,
+            "max_gap_seconds": 61.0,
+            "pressure_grade": "B+",
+            "pressure_status": "REPLAY",
+            "finalize_mode": "REPLAY_FINALIZE",
+            "trade_plan_id": None,
+            "execution_grade": None,
+            "action": None,
+        },
+    ]
+
+    deduped = _select_latest_signal_rows(rows, bucket="watchlist")
+
+    assert len(deduped) == 1
+    assert deduped[0]["block_id"] == 9
+    assert deduped[0]["event_count"] == 118
+    assert deduped[0]["block_count"] == 2
+    assert deduped[0]["start_utc"] == datetime(2026, 4, 27, 6, 57, 13, tzinfo=timezone.utc)
+    assert deduped[0]["end_utc"] == datetime(2026, 4, 27, 7, 15, 17, tzinfo=timezone.utc)
