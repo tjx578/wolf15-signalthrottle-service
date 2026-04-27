@@ -338,6 +338,13 @@ event live muncul di dashboard
 optional candle mirror siap
 ```
 
+Current implementation note:
+
+```text
+Jika engine tidak mengirim webhook live, service dapat melakukan backfill periodik
+dari awal hari owner timezone sampai sekarang lewat ENGINE_LOG_SYNC_* env.
+```
+
 ---
 
 ## Repository Structure

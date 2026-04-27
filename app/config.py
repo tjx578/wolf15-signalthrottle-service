@@ -21,6 +21,13 @@ class Settings(BaseSettings):
 
     webhook_secret: str | None = None
 
+    engine_log_sync_enabled: bool = False
+    engine_log_source_url: str | None = None
+    engine_log_source_token: str | None = None
+    engine_log_source_service: str = "wolf15-engine"
+    engine_log_sync_interval_seconds: int = 300
+    engine_log_sync_timeout_seconds: int = 30
+
     min_radar_minutes: float = 5.0
     min_strong_minutes: float = 14.0
     max_event_gap_seconds: int = 300
