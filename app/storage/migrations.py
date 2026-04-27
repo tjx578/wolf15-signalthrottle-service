@@ -37,6 +37,7 @@ async def run_migrations() -> list[dict]:
         _migration_007_ensure_block_pending_reason_columns,
         _migration_008_ensure_trade_plans_reason_code,
         _migration_009_backfill_signal_outcomes_h4_context_type,
+        _migration_010_cleanup_duplicate_replay_pressure_blocks,
     ]
     results: list[dict] = []
     for m in migrations:
@@ -477,3 +478,52 @@ async def _migration_009_backfill_signal_outcomes_h4_context_type() -> None:
         )
 
     logger.info("migration_009: signal_outcomes.h4_context_type backfilled from latest snapshots/trade plan payload")
+
+
+async def _migration_010_cleanup_duplicate_replay_pressure_blocks() -> None:
+    """Remove only exact replay duplicates that have no dependent snapshot or
+    trade-plan rows. Keep one canonical representative per identical replay
+    identity and preserve any row that already owns downstream artifacts.
+    """
+    async with get_cursor() as cur:
+        await cur.execute(
+            sql.SQL(
+                """
+                WITH ranked AS (
+                    SELECT
+                        pb.id,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY COALESCE(
+                                pb.block_hash,
+                                pb.symbol || '|' || pb.start_utc::text || '|' || pb.end_utc::text || '|' ||
+                                COALESCE(pb.event_count::text, '') || '|' || COALESCE(pb.duration_minutes::text, '') || '|' ||
+                                COALESCE(pb.pressure_grade, '') || '|' || COALESCE(pb.pressure_status, '')
+                            )
+                            ORDER BY
+                                CASE WHEN tp.id IS NOT NULL THEN 1 ELSE 0 END DESC,
+                                CASE WHEN ms.id IS NOT NULL THEN 1 ELSE 0 END DESC,
+                                pb.id ASC
+                        ) AS rn,
+                        tp.id AS trade_plan_id,
+                        ms.id AS market_snapshot_id
+                    FROM {} pb
+                    LEFT JOIN {} tp ON tp.block_id = pb.id
+                    LEFT JOIN {} ms ON ms.block_id = pb.id
+                    WHERE pb.pressure_status = 'REPLAY'
+                )
+                DELETE FROM {} pb
+                USING ranked
+                WHERE pb.id = ranked.id
+                  AND ranked.rn > 1
+                  AND ranked.trade_plan_id IS NULL
+                  AND ranked.market_snapshot_id IS NULL
+                """
+            ).format(
+                sql.Identifier(settings.db_schema, "pressure_blocks"),
+                sql.Identifier(settings.db_schema, "trade_plans"),
+                sql.Identifier(settings.db_schema, "market_snapshots"),
+                sql.Identifier(settings.db_schema, "pressure_blocks"),
+            )
+        )
+
+    logger.info("migration_010: exact duplicate replay pressure_blocks cleaned up conservatively")

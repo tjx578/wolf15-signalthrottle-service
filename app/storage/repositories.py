@@ -756,6 +756,11 @@ class SignalRepository:
                 (symbol, series["end_utc"], series["start_utc"]),
             )
             blocks = await cur.fetchall()
+        blocks = sorted(
+            _dedupe_exact_pressure_block_rows(blocks),
+            key=lambda row: (row.get("end_utc"), row.get("id") or 0),
+            reverse=True,
+        )
 
         trade_plan = None
         if series.get("latest_trade_plan_id"):

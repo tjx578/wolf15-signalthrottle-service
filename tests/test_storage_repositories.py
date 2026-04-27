@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 import app.storage.repositories as repositories_module
 from app.storage.repositories import (
     SignalRepository,
+    _dedupe_exact_pressure_block_rows,
     _matches_signal_bucket,
     _merge_pressure_series,
     _select_latest_signal_rows,
@@ -345,3 +346,127 @@ def test_repository_latest_signals_sql_surfaces_reason_code_fallback(monkeypatch
     assert "AS reason_code" in FakeCursor.executed_sql
     assert "COALESCE(" in FakeCursor.executed_sql
     assert result[0]["reason_code"] == "TRADE_PLAN_REQUIRED"
+
+
+def test_dedupe_exact_pressure_block_rows_prefers_latest_duplicate_row() -> None:
+    rows = [
+        {
+            "id": 13,
+            "symbol": "GBPUSD",
+            "start_utc": datetime(2026, 4, 27, 7, 20, 36, tzinfo=timezone.utc),
+            "end_utc": datetime(2026, 4, 27, 7, 30, 3, tzinfo=timezone.utc),
+            "duration_minutes": 9.45,
+            "event_count": 113,
+            "pressure_grade": "B+",
+            "pressure_status": "REPLAY",
+            "finalize_mode": "REPLAY_FINALIZE",
+            "trade_plan_id": None,
+        },
+        {
+            "id": 23,
+            "symbol": "GBPUSD",
+            "start_utc": datetime(2026, 4, 27, 7, 20, 36, tzinfo=timezone.utc),
+            "end_utc": datetime(2026, 4, 27, 7, 30, 3, tzinfo=timezone.utc),
+            "duration_minutes": 9.45,
+            "event_count": 113,
+            "pressure_grade": "B+",
+            "pressure_status": "REPLAY",
+            "finalize_mode": "REPLAY_FINALIZE",
+            "trade_plan_id": None,
+        },
+    ]
+
+    deduped = _dedupe_exact_pressure_block_rows(rows)
+
+    assert len(deduped) == 1
+    assert deduped[0]["id"] == 23
+
+
+def test_get_signal_series_detail_dedupes_exact_raw_blocks(monkeypatch) -> None:
+    series_row = {
+        "symbol": "GBPUSD",
+        "start_utc": datetime(2026, 4, 27, 7, 15, 23, tzinfo=timezone.utc),
+        "end_utc": datetime(2026, 4, 27, 7, 30, 3, tzinfo=timezone.utc),
+        "latest_block_id": 23,
+        "latest_trade_plan_id": None,
+    }
+    latest_snapshot = {"block_id": 23, "chart_phase": "PIVOT_RECLAIM_CONTINUATION"}
+    raw_blocks = [
+        {
+            "id": 13,
+            "symbol": "GBPUSD",
+            "start_utc": datetime(2026, 4, 27, 7, 20, 36, tzinfo=timezone.utc),
+            "end_utc": datetime(2026, 4, 27, 7, 30, 3, tzinfo=timezone.utc),
+            "duration_minutes": 9.45,
+            "event_count": 113,
+            "pressure_grade": "B+",
+            "pressure_status": "REPLAY",
+            "finalize_mode": "REPLAY_FINALIZE",
+            "trade_plan_id": None,
+        },
+        {
+            "id": 23,
+            "symbol": "GBPUSD",
+            "start_utc": datetime(2026, 4, 27, 7, 20, 36, tzinfo=timezone.utc),
+            "end_utc": datetime(2026, 4, 27, 7, 30, 3, tzinfo=timezone.utc),
+            "duration_minutes": 9.45,
+            "event_count": 113,
+            "pressure_grade": "B+",
+            "pressure_status": "REPLAY",
+            "finalize_mode": "REPLAY_FINALIZE",
+            "trade_plan_id": None,
+        },
+        {
+            "id": 25,
+            "symbol": "GBPUSD",
+            "start_utc": datetime(2026, 4, 27, 7, 15, 23, tzinfo=timezone.utc),
+            "end_utc": datetime(2026, 4, 27, 7, 25, 25, tzinfo=timezone.utc),
+            "duration_minutes": 10.03,
+            "event_count": 117,
+            "pressure_grade": "A-",
+            "pressure_status": "REPLAY",
+            "finalize_mode": "REPLAY_FINALIZE",
+            "trade_plan_id": None,
+        },
+    ]
+
+    class FakeCursor:
+        def __init__(self, fetchone_responses=None, fetchall_responses=None):
+            self._fetchone_responses = list(fetchone_responses or [])
+            self._fetchall_responses = list(fetchall_responses or [])
+
+        async def execute(self, query, params=None) -> None:
+            return None
+
+        async def fetchone(self):
+            if self._fetchone_responses:
+                return self._fetchone_responses.pop(0)
+            return None
+
+        async def fetchall(self):
+            if self._fetchall_responses:
+                return self._fetchall_responses.pop(0)
+            return []
+
+    cursors = [
+        FakeCursor(fetchone_responses=[series_row]),
+        FakeCursor(fetchone_responses=[latest_snapshot]),
+        FakeCursor(fetchall_responses=[raw_blocks]),
+    ]
+
+    @asynccontextmanager
+    async def fake_get_cursor():
+        yield cursors.pop(0)
+
+    async def fake_refresh_pressure_series(self, symbol: str | None = None) -> None:
+        return None
+
+    monkeypatch.setattr(repositories_module, "get_cursor", fake_get_cursor)
+    monkeypatch.setattr(SignalRepository, "refresh_pressure_series", fake_refresh_pressure_series)
+
+    repo = SignalRepository()
+    detail = asyncio.run(repo.get_signal_series_detail("GBPUSD"))
+
+    assert detail is not None
+    assert len(detail["blocks"]) == 2
+    assert [block["id"] for block in detail["blocks"]] == [23, 25]
