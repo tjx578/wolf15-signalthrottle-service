@@ -213,16 +213,19 @@ class SignalRepository:
             await cur.execute(
                 """
                 INSERT INTO trade_plans
-                    (block_id, symbol, pressure_grade, execution_grade,
+                    (block_id, symbol, pressure_status, signal_bucket,
+                     pressure_grade, execution_grade,
                      execution_side, action, entry_zone, breakout_level,
                      reclaim_level, invalidation, tp1, tp2, tp3,
                      message, payload)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
                 RETURNING id
                 """,
                 (
                     block_id,
                     plan["symbol"],
+                    plan.get("pressure_status"),
+                    plan.get("signal_bucket"),
                     plan["pressure_grade"],
                     plan["execution_grade"],
                     plan.get("execution_side"),

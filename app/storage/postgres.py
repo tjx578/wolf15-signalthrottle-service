@@ -42,7 +42,11 @@ async def _configure_connection(conn: "psycopg.AsyncConnection[DictRow]") -> Non
 async def get_cursor() -> AsyncIterator["psycopg.AsyncCursor[DictRow]"]:
     conn = await get_connection()
     async with conn.cursor(row_factory=dict_row) as cur:
-        yield cur
+        try:
+            yield cur
+        except Exception:
+            await conn.rollback()
+            raise
     await conn.commit()
 
 

@@ -12,6 +12,7 @@ class TradePlan(BaseModel):
     signal_type: str = "SIGNAL_THROTTLE_PRESSURE"
 
     pressure_status: str | None = None
+    signal_bucket: str | None = None
     pressure_grade: str
     execution_grade: str
     execution_side: str

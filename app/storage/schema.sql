@@ -96,6 +96,8 @@ CREATE TABLE IF NOT EXISTS signalthrottle.trade_plans (
     block_id BIGINT REFERENCES signalthrottle.pressure_blocks(id) ON DELETE CASCADE,
     symbol TEXT NOT NULL,
 
+    pressure_status TEXT,
+    signal_bucket TEXT,
     pressure_grade TEXT NOT NULL,
     execution_grade TEXT NOT NULL,
     execution_side TEXT,
