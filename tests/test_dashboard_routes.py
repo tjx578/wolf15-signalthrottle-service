@@ -142,6 +142,20 @@ class FakeSignalRepository:
         return []
 
 
+class FakeSignalRepositoryWithBrokenOutcomes(FakeSignalRepository):
+    async def get_outcome_summary(self) -> dict:
+        raise RuntimeError("signal_outcomes table missing")
+
+    async def get_outcomes_by_phase(self) -> list[dict]:
+        raise RuntimeError("signal_outcomes table missing")
+
+    async def get_outcomes_by_grade(self) -> list[dict]:
+        raise RuntimeError("signal_outcomes table missing")
+
+    async def get_latest_outcomes(self, limit: int = 20) -> list[dict]:
+        raise RuntimeError("signal_outcomes table missing")
+
+
 def test_dashboard_watchlist_renders_pending_pressure_without_trade_plan(monkeypatch) -> None:
     monkeypatch.setattr(lifecycle, "init_db", _noop)
     monkeypatch.setattr(lifecycle, "run_migrations", _noop)
@@ -181,3 +195,20 @@ def test_signal_detail_shows_rationale_summary(monkeypatch) -> None:
     assert response.status_code == 200
     assert "Rationale" in response.text
     assert "GBPUSD B+ pressure with valid market structure. Trade plan shown as watchlist setup." in response.text
+
+
+def test_dashboard_keeps_signals_when_outcome_queries_fail(monkeypatch) -> None:
+    monkeypatch.setattr(lifecycle, "init_db", _noop)
+    monkeypatch.setattr(lifecycle, "run_migrations", _noop)
+    monkeypatch.setattr(lifecycle, "close_db", _noop)
+    monkeypatch.setattr(routes_dashboard, "SignalRepository", FakeSignalRepositoryWithBrokenOutcomes)
+
+    app = create_app()
+    client = TestClient(app)
+
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert "GBPUSD" in response.text
+    assert "watchlist_tradeplan" in response.text
+    assert "No outcome data yet" in response.text
