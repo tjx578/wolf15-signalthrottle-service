@@ -645,6 +645,27 @@ Response:
 POST /replay/logs
 ```
 
+Quick live smoke test against Railway:
+
+```bash
+python scripts/replay_logs.py tests/fixtures/usdjpy_bplus_replay.log --url https://your-service.up.railway.app
+```
+
+This runs the recommended Phase 2 sequence:
+
+```text
+GET /health
+GET /market/snapshot/USDJPY
+POST /replay/logs
+GET /signals/latest
+```
+
+Replay-only example:
+
+```bash
+python scripts/replay_logs.py tests/fixtures/usdjpy_bplus_replay.log --url https://your-service.up.railway.app --skip-health --skip-market
+```
+
 Payload:
 
 ```json
