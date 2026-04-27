@@ -18,18 +18,22 @@ router = APIRouter()
 
 
 @router.post("/run-migrations")
-async def debug_run_migrations() -> dict:
-    """Manually re-run schema.sql + migrations.
+async def debug_run_migrations(include_schema: bool = False) -> dict:
+    """Manually re-run migrations (and optionally schema.sql).
 
-    Useful when Railway boots an older image or migrations were skipped due to
-    transient DB errors. Idempotent: each migration uses ADD COLUMN IF NOT EXISTS
-    / CREATE TABLE IF NOT EXISTS semantics.
+    By default we only run migrations because schema.sql contains CREATE INDEX
+    statements that depend on columns added by migrations 002/004 — running it
+    against a legacy DB before migrations have caught up will fail.
+
+    Pass `?include_schema=true` to also re-run schema.sql (only useful for
+    fresh DBs).
     """
     schema_error: str | None = None
-    try:
-        await init_db()
-    except Exception as exc:
-        schema_error = str(exc)
+    if include_schema:
+        try:
+            await init_db()
+        except Exception as exc:
+            schema_error = str(exc)
     results = await run_migrations()
     ok = all(r.get("status") == "ok" for r in results) and schema_error is None
     return {

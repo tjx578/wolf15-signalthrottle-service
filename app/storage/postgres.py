@@ -58,10 +58,19 @@ async def init_db() -> None:
     schema_sql = schema_path.read_text(encoding="utf-8")
 
     conn = await get_connection()
-    async with conn.cursor() as cur:
-        await cur.execute(schema_sql)  # type: ignore[arg-type]
-    await conn.commit()
-    logger.info("Database schema initialized")
+    try:
+        async with conn.cursor() as cur:
+            await cur.execute(schema_sql)  # type: ignore[arg-type]
+        await conn.commit()
+        logger.info("Database schema initialized")
+    except Exception:
+        # Avoid leaving the connection in an aborted-transaction state for
+        # subsequent callers (e.g. migrations that follow init_db).
+        try:
+            await conn.rollback()
+        except Exception:
+            pass
+        raise
 
 
 async def close_db() -> None:
