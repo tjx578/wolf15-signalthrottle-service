@@ -596,10 +596,10 @@ class SignalRepository:
                 INSERT INTO trade_plans
                     (block_id, symbol, pressure_status, signal_bucket,
                      pressure_grade, execution_grade,
-                     execution_side, action, entry_zone, breakout_level,
+                     execution_side, chart_phase, action, entry_zone, breakout_level,
                      reclaim_level, invalidation, tp1, tp2, tp3,
                      message, payload)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
                 RETURNING id
                 """,
                 (
@@ -610,6 +610,7 @@ class SignalRepository:
                     plan["pressure_grade"],
                     plan["execution_grade"],
                     plan.get("execution_side"),
+                    plan.get("chart_phase"),
                     plan["action"],
                     plan.get("entry_zone"),
                     plan.get("breakout_level"),
@@ -725,7 +726,7 @@ class SignalRepository:
                     pb.is_active,
                     tp.execution_grade,
                     tp.execution_side,
-                    tp.chart_phase,
+                    COALESCE(tp.chart_phase, ms.chart_phase) AS chart_phase,
                     tp.action,
                     tp.entry_zone,
                     tp.invalidation,
@@ -774,6 +775,13 @@ class SignalRepository:
                     ORDER BY tp.created_at DESC
                     LIMIT 1
                 ) tp ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT chart_phase
+                    FROM market_snapshots ms
+                    WHERE ms.block_id = pb.id
+                    ORDER BY ms.created_at DESC
+                    LIMIT 1
+                ) ms ON TRUE
                 ORDER BY pb.end_utc DESC, pb.id DESC
                 LIMIT %s
                 """,

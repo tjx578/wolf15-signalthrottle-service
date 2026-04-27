@@ -94,6 +94,7 @@ async def _migration_002_ensure_phase2_columns() -> None:
     ]
     trade_plan_columns = [
         ("execution_side", "TEXT"),
+        ("chart_phase", "TEXT"),
         ("entry_zone", "TEXT"),
         ("breakout_level", "TEXT"),
         ("reclaim_level", "TEXT"),
