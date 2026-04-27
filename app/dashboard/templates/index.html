@@ -7,7 +7,7 @@
     <strong>{{ stats.active_blocks }}</strong>
   </div>
   <div class="card">
-    <span class="label">A/A+ Signals (24h)</span>
+    <span class="label">Priority Trade Plans (24h)</span>
     <strong>{{ stats.priority_signals }}</strong>
   </div>
   <div class="card">
@@ -57,8 +57,8 @@
 </section>
 
 <section class="panel">
-  <h2>Actionable Signals</h2>
-  {% if latest_signals %}
+  <h2>Priority Trade Plans</h2>
+  {% if priority_trade_plans %}
   <div class="table-wrap">
     <table>
       <thead>
@@ -68,19 +68,27 @@
           <th>Exec</th>
           <th>Phase</th>
           <th>Action</th>
+          <th>Rationale</th>
+          <th>Plan Status</th>
+          <th>Bucket</th>
+          <th>Alert</th>
           <th>Zone</th>
           <th>Invalid</th>
           <th>End WITA</th>
         </tr>
       </thead>
       <tbody>
-        {% for s in latest_signals %}
+        {% for s in priority_trade_plans %}
         <tr>
           <td class="symbol"><a href="/signal-detail/{{ s.id }}">{{ s.symbol }}</a></td>
           <td><span class="badge">{{ s.pressure_grade }}</span></td>
           <td><span class="badge">{{ s.execution_grade }}</span></td>
           <td>{{ s.chart_phase }}</td>
           <td>{{ s.action }}</td>
+          <td>{{ s.display_message or s.message or '-' }}</td>
+          <td>{{ s.trade_plan_status or '-' }}</td>
+          <td>{{ s.dashboard_bucket or '-' }}</td>
+          <td>{{ s.owner_alert or 'NO' }}</td>
           <td>{{ s.entry_zone or '-' }}</td>
           <td>{{ s.invalidation or '-' }}</td>
           <td>{{ s.signal_end_wita or '-' }}</td>
@@ -90,7 +98,53 @@
     </table>
   </div>
   {% else %}
-  <p class="empty">No actionable signals yet</p>
+  <p class="empty">No priority trade plans yet</p>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <h2>Actionable Trade Plans</h2>
+  {% if actionable_trade_plans %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Symbol</th>
+          <th>Pressure</th>
+          <th>Exec</th>
+          <th>Phase</th>
+          <th>Action</th>
+          <th>Rationale</th>
+          <th>Plan Status</th>
+          <th>Bucket</th>
+          <th>Alert</th>
+          <th>Zone</th>
+          <th>Invalid</th>
+          <th>End WITA</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in actionable_trade_plans %}
+        <tr>
+          <td class="symbol"><a href="/signal-detail/{{ s.id }}">{{ s.symbol }}</a></td>
+          <td><span class="badge">{{ s.pressure_grade }}</span></td>
+          <td><span class="badge">{{ s.execution_grade }}</span></td>
+          <td>{{ s.chart_phase }}</td>
+          <td>{{ s.action }}</td>
+          <td>{{ s.display_message or s.message or '-' }}</td>
+          <td>{{ s.trade_plan_status or '-' }}</td>
+          <td>{{ s.dashboard_bucket or '-' }}</td>
+          <td>{{ s.owner_alert or 'NO' }}</td>
+          <td>{{ s.entry_zone or '-' }}</td>
+          <td>{{ s.invalidation or '-' }}</td>
+          <td>{{ s.signal_end_wita or '-' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No actionable trade plans yet</p>
   {% endif %}
 </section>
 
@@ -106,17 +160,31 @@
           <th>Exec</th>
           <th>Phase</th>
           <th>Action</th>
+          <th>Rationale</th>
+          <th>Plan Status</th>
+          <th>Bucket</th>
+          <th>Alert</th>
           <th>End WITA</th>
         </tr>
       </thead>
       <tbody>
         {% for s in watchlist_signals %}
         <tr>
-          <td class="symbol"><a href="/signal-detail/{{ s.id }}">{{ s.symbol }}</a></td>
+          <td class="symbol">
+            {% if s.trade_plan_id or s.id %}
+            <a href="/signal-detail/{{ s.trade_plan_id or s.id }}">{{ s.symbol }}</a>
+            {% else %}
+            {{ s.symbol }}
+            {% endif %}
+          </td>
           <td><span class="badge">{{ s.pressure_grade }}</span></td>
-          <td><span class="badge">{{ s.execution_grade }}</span></td>
-          <td>{{ s.chart_phase }}</td>
-          <td>{{ s.action }}</td>
+          <td><span class="badge">{{ s.execution_grade or 'PENDING' }}</span></td>
+          <td>{{ s.chart_phase or s.market_context_status or '-' }}</td>
+          <td>{{ s.action or s.trade_plan_status or 'TRADE_PLAN_PENDING' }}</td>
+          <td>{{ s.display_message or s.message or '-' }}</td>
+          <td>{{ s.trade_plan_status or '-' }}</td>
+          <td>{{ s.dashboard_bucket or '-' }}</td>
+          <td>{{ s.owner_alert or 'NO' }}</td>
           <td>{{ s.signal_end_wita or '-' }}</td>
         </tr>
         {% endfor %}

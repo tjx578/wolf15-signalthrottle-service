@@ -11,9 +11,9 @@ router = APIRouter()
 async def latest_signals(limit: int = 20, bucket: str = "all"):
     repo = SignalRepository()
     normalized_bucket = bucket.lower()
-    if normalized_bucket not in {"all", "actionable", "watchlist"}:
+    if normalized_bucket not in {"all", "watchlist", "highlighted", "actionable", "priority"}:
         normalized_bucket = "all"
-    plans = await repo.get_latest_trade_plans(limit=limit, bucket=normalized_bucket)
+    plans = await repo.get_latest_signals(limit=limit, bucket=normalized_bucket)
     return {"count": len(plans), "bucket": normalized_bucket, "signals": plans}
 
 

@@ -86,3 +86,57 @@ def test_build_plan_b_plus_stays_watchlist() -> None:
     assert result["execution_grade"] == "B+"
     assert result["signal_bucket"] == "watchlist"
     assert result["execution_side"] == "WAIT_BREAKDOWN_OR_RECLAIM"
+
+
+def test_build_plan_b_plus_strong_phase_gets_trade_plan_ready_grade() -> None:
+    block = {
+        "symbol": "GBPUSD",
+        "pressure_grade": "B+",
+        "start_utc": "2026-04-27T07:20:36Z",
+        "end_utc": "2026-04-27T07:30:03Z",
+        "duration_minutes": 9.45,
+        "event_count": 113,
+        "density_per_minute": 11.96,
+        "max_gap_seconds": 14.58,
+        "avg_gap_seconds": 5.06,
+    }
+    snapshot = {
+        "price_at_end": 1.27235,
+        "entry_zone": "derived_from_structure",
+        "invalidation": "derived_from_structure",
+        "chart_bias": "BULLISH_RECOVERY",
+        "chart_phase": "PULLBACK_TO_SUPPORT",
+        "action": "WAIT_SUPPORT_REACTION_OR_RECLAIM",
+    }
+
+    result = build_trade_plan(block, snapshot)
+
+    assert result["pressure_grade"] == "B+"
+    assert result["execution_grade"] == "B+"
+    assert result["signal_bucket"] == "watchlist"
+    assert result["action"] == "WAIT_SUPPORT_REACTION_OR_RECLAIM"
+    assert result["entry_zone"] == "derived_from_structure"
+    assert result["invalidation"] == "derived_from_structure"
+
+
+def test_build_plan_b_plus_range_mid_stays_wait_state() -> None:
+    block = {
+        "symbol": "GBPUSD",
+        "pressure_grade": "B+",
+        "start_utc": "2026-04-27T07:20:36Z",
+        "end_utc": "2026-04-27T07:30:03Z",
+        "duration_minutes": 9.45,
+        "event_count": 113,
+        "density_per_minute": 11.96,
+    }
+    snapshot = {
+        "chart_bias": "RANGE",
+        "chart_phase": "RANGE_MID_NO_EDGE",
+        "action": "NO_TRADE",
+    }
+
+    result = build_trade_plan(block, snapshot)
+
+    assert result["execution_grade"] == "C"
+    assert result["signal_bucket"] == "watchlist"
+    assert result["execution_side"] == "NO_TRADE"

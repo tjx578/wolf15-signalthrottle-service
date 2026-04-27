@@ -18,8 +18,9 @@ async def dashboard_home(request: Request):
     try:
         repo = SignalRepository()
         active_blocks = await repo.get_active_blocks()
-        latest_signals = await repo.get_latest_trade_plans(limit=12, bucket="actionable")
-        watchlist_signals = await repo.get_latest_trade_plans(limit=12, bucket="watchlist")
+        priority_trade_plans = await repo.get_latest_signals(limit=12, bucket="priority")
+        actionable_trade_plans = await repo.get_latest_signals(limit=12, bucket="actionable")
+        watchlist_signals = await repo.get_latest_signals(limit=12, bucket="watchlist")
         stats = await repo.get_dashboard_stats()
         outcome_summary = await repo.get_outcome_summary()
         outcomes_by_phase = await repo.get_outcomes_by_phase()
@@ -28,7 +29,8 @@ async def dashboard_home(request: Request):
     except Exception as exc:
         logger.warning("Dashboard DB query failed: %s", exc)
         active_blocks = []
-        latest_signals = []
+        priority_trade_plans = []
+        actionable_trade_plans = []
         watchlist_signals = []
         stats = {
             "active_blocks": 0,
@@ -53,7 +55,8 @@ async def dashboard_home(request: Request):
         {
             "request": request,
             "active_blocks": active_blocks,
-            "latest_signals": latest_signals,
+            "priority_trade_plans": priority_trade_plans,
+            "actionable_trade_plans": actionable_trade_plans,
             "watchlist_signals": watchlist_signals,
             "stats": stats,
             "outcome_summary": outcome_summary,

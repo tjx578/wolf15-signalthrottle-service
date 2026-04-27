@@ -3,16 +3,39 @@ from __future__ import annotations
 from typing import Any
 
 
-def grade_execution(pressure_grade: str, chart_phase: str) -> str:
-    if pressure_grade in {"A+", "A"} and chart_phase in {
-        "PIVOT_RECLAIM_CONTINUATION",
-        "UPPER_RANGE_EXHAUSTION_RISK",
-        "BEARISH_PULLBACK_CONTINUATION",
-    }:
-        return "A"
+STRONG_PHASES = {
+    "PIVOT_RECLAIM_CONTINUATION",
+    "HIGH_BASE_COMPRESSION",
+    "PULLBACK_TO_SUPPORT",
+    "BREAKOUT_RETEST",
+    "BEARISH_PULLBACK_CONTINUATION",
+    "UPPER_RANGE_EXHAUSTION_RISK",
+}
 
-    if pressure_grade in {"A+", "A", "A-"} and chart_phase == "SUPPORT_DECISION_ZONE":
-        return "B+"
+DECISION_PHASES = {
+    "SUPPORT_DECISION_ZONE",
+    "RESISTANCE_DECISION_ZONE",
+}
+
+WAIT_ACTIONS = {
+    "NO_TRADE",
+    "NO_TRADE_WAIT_CONTEXT",
+    "WAIT",
+}
+
+
+def grade_execution(pressure_grade: str, chart_phase: str) -> str:
+    if chart_phase in STRONG_PHASES:
+        if pressure_grade in {"A+", "A", "A-"}:
+            return "A"
+        if pressure_grade == "B+":
+            return "B+"
+
+    if chart_phase in DECISION_PHASES:
+        if pressure_grade in {"A+", "A", "A-"}:
+            return "B+"
+        if pressure_grade == "B+":
+            return "B"
 
     if chart_phase == "RANGE_MID_NO_EDGE":
         return "C"
@@ -23,9 +46,13 @@ def grade_execution(pressure_grade: str, chart_phase: str) -> str:
 def map_execution_side(chart_phase: str) -> str:
     mapping = {
         "PIVOT_RECLAIM_CONTINUATION": "BUY_CONTINUATION",
+        "HIGH_BASE_COMPRESSION": "BUY_BREAKOUT_OR_RETEST",
+        "PULLBACK_TO_SUPPORT": "WAIT_SUPPORT_REACTION_OR_RECLAIM",
+        "BREAKOUT_RETEST": "BUY_BREAKOUT_RETEST",
         "UPPER_RANGE_EXHAUSTION_RISK": "PROTECT_LONG_OR_SELL_REJECTION",
         "BEARISH_PULLBACK_CONTINUATION": "SELL_ON_RALLY_OR_CONTINUATION",
         "SUPPORT_DECISION_ZONE": "WAIT_BREAKDOWN_OR_RECLAIM",
+        "RESISTANCE_DECISION_ZONE": "WAIT_BREAKOUT_OR_REJECTION",
         "RANGE_MID_NO_EDGE": "NO_TRADE",
     }
     return mapping.get(chart_phase, "WAIT")
@@ -42,7 +69,7 @@ def pressure_status_from_grade(pressure_grade: str) -> str:
 
 
 def is_actionable_signal(execution_grade: str, action: str) -> bool:
-    return execution_grade in {"A+", "A"} and action != "NO_TRADE_WAIT_CONTEXT"
+    return execution_grade in {"B+", "A", "A+"} and action not in WAIT_ACTIONS
 
 
 def build_message(
@@ -74,7 +101,9 @@ def build_trade_plan(block: dict[str, Any], snapshot: dict[str, Any]) -> dict[st
 
     execution_grade = grade_execution(pressure_grade, chart_phase)
     execution_side = map_execution_side(chart_phase)
-    actionable = is_actionable_signal(execution_grade, action)
+    actionable = pressure_grade in {"A", "A+"} and is_actionable_signal(
+        execution_grade, action
+    )
 
     price_at_end = snapshot.get("price_at_end")
     price_text = None

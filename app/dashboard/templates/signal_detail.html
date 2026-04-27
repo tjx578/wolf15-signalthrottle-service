@@ -39,6 +39,11 @@
     </div>
   </div>
 
+  <section class="panel">
+    <h3>Rationale</h3>
+    <p>{{ signal.display_message or signal.message or 'No rationale available.' }}</p>
+  </section>
+
   <h3>Trade Plan JSON</h3>
   <pre class="json-view">{{ signal.payload | tojson(indent=2) if signal.payload else '{}' }}</pre>
 
