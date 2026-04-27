@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.models.log_event import LogEvent
+from ..models.log_event import LogEvent
 
 
 def split_blocks(

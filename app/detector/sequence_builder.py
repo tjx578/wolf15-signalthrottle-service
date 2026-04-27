@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from app.models.log_event import LogEvent
+from ..models.log_event import LogEvent
 
 
 def group_by_symbol(events: list[LogEvent]) -> dict[str, list[LogEvent]]:

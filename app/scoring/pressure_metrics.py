@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from statistics import mean
 
-from app.models.log_event import LogEvent
+from ..models.log_event import LogEvent
 
 
 def calculate_pressure_metrics(events: list[LogEvent]) -> dict:

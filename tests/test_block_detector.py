@@ -43,7 +43,9 @@ def test_split_by_symbol():
         _make_event("NZDCHF", 15),
     ]
     blocks = split_blocks(events)
-    assert len(blocks) == 3  # USDJPY x2, then symbol change splits
+    assert len(blocks) == 2
+    assert len(blocks[0]) == 2
+    assert len(blocks[1]) == 2
 
 
 def test_empty_events():
