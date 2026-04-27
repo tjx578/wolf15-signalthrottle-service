@@ -41,7 +41,31 @@ async def enrich_block_with_market_context(
 
     try:
         snapshot = await snapshot_builder.build(block)
-        snapshot_id = await repository.insert_market_snapshot(snapshot)
+
+        # Extract only fields for market_snapshots table
+        market_snapshot_data = {
+            "block_id": snapshot.get("block_id"),
+            "symbol": snapshot["symbol"],
+            "signal_start_utc": snapshot.get("signal_start_utc"),
+            "signal_end_utc": snapshot.get("signal_end_utc"),
+            "price_at_start": snapshot.get("price_at_start"),
+            "price_at_end": snapshot.get("price_at_end"),
+            "spread_points": snapshot.get("spread_points"),
+            "d1_bias": snapshot.get("d1_bias"),
+            "h4_structure": snapshot.get("h4_structure"),
+            "h1_phase": snapshot.get("h1_phase"),
+            "m15_phase": snapshot.get("m15_phase"),
+            "chart_bias": snapshot.get("chart_bias"),
+            "chart_phase": snapshot.get("chart_phase"),
+            "support_zone": snapshot.get("support_zone"),
+            "resistance_zone": snapshot.get("resistance_zone"),
+            "key_level": snapshot.get("key_level"),
+            "raw_ohlc": snapshot.get("raw_ohlc"),
+        }
+
+        snapshot_id = await repository.insert_market_snapshot(market_snapshot_data)
+
+        # Pass full snapshot (with phase fields) to build_trade_plan
         trade_plan = build_trade_plan(block, snapshot)
         trade_plan["block_id"] = block_id
         trade_plan["market_snapshot_id"] = snapshot_id
