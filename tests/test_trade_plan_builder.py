@@ -241,3 +241,74 @@ def test_build_plan_failed_breakout_acceptance_keeps_stronger_grade() -> None:
 
     assert result["execution_grade"] == "A"
     assert result["h4_context_type"] == "FAILED_BREAKOUT_ACCEPTANCE"
+
+
+def test_build_plan_chained_continuation_wait_sets_chain_priority_context() -> None:
+    block = {
+        "symbol": "NZDCHF",
+        "pressure_grade": "B+",
+        "start_utc": "2026-04-23T05:06:16Z",
+        "end_utc": "2026-04-23T05:15:43Z",
+        "start_wita": "2026-04-23 13:06:16",
+        "end_wita": "2026-04-23 13:15:43",
+        "duration_minutes": 9.44,
+        "event_count": 89,
+        "density_per_minute": 9.43,
+        "max_gap_seconds": 24.27,
+        "avg_gap_seconds": 8.1,
+        "block_relation": "CHAINED_CONTINUATION",
+        "previous_block_grade": "A+",
+        "previous_block_end_wita": "2026-04-23 13:01:27",
+        "gap_from_previous_minutes": 4.82,
+    }
+    snapshot = {
+        "chart_bias": "SUPPORT_TEST",
+        "chart_phase": "SUPPORT_DECISION_ZONE",
+        "action": "WAIT_BREAKDOWN_OR_RECLAIM",
+        "reason_code": "SUPPORT_DECISION_PENDING",
+    }
+
+    result = build_trade_plan(block, snapshot)
+
+    assert result["pressure_status"] == "CHAINED_PRIORITY_PRESSURE"
+    assert result["standalone_grade"] == "B+"
+    assert result["chain_adjusted_grade"] == "A"
+    assert result["chain_type"] == "CONTINUATION_PULSE_AFTER_A_PLUS"
+    assert result["execution_mode"] == "INSTANT_IF_CHART_TRIGGER_ACTIVE"
+    assert result["execution_grade"] == "B+"
+    assert result["signal_bucket"] == "watchlist"
+    assert "continuation pulse after A+ block" in result["message"]
+    assert result["payload"]["chain_context"]["is_chain_candidate"] is True
+
+
+def test_build_plan_chained_continuation_actionable_becomes_instant_candidate() -> None:
+    block = {
+        "symbol": "NZDCHF",
+        "pressure_grade": "B+",
+        "start_utc": "2026-04-23T05:06:16Z",
+        "end_utc": "2026-04-23T05:15:43Z",
+        "start_wita": "2026-04-23 13:06:16",
+        "end_wita": "2026-04-23 13:15:43",
+        "duration_minutes": 9.44,
+        "event_count": 89,
+        "density_per_minute": 9.43,
+        "max_gap_seconds": 24.27,
+        "block_relation": "CHAINED_CONTINUATION",
+        "previous_block_grade": "A+",
+        "previous_block_end_wita": "2026-04-23 13:01:27",
+        "gap_from_previous_minutes": 4.82,
+    }
+    snapshot = {
+        "chart_bias": "BULLISH_CONTINUATION",
+        "chart_phase": "PIVOT_RECLAIM_CONTINUATION",
+        "action": "BUY_ON_RETEST_OR_RECLAIM_HOLD",
+        "reason_code": "PIVOT_RECLAIM_VALID",
+    }
+
+    result = build_trade_plan(block, snapshot)
+
+    assert result["chain_adjusted_grade"] == "A"
+    assert result["execution_mode"] == "INSTANT_EXECUTION_CANDIDATE"
+    assert result["execution_grade"] == "A"
+    assert result["signal_bucket"] == "ready"
+    assert result["owner_alert"] is True

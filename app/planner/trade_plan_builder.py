@@ -27,6 +27,9 @@ WAIT_ACTIONS = {
     "WAIT",
 }
 
+CHAIN_PREVIOUS_GRADES = {"A", "A+"}
+CHAIN_ELIGIBLE_GRADES = {"B+", "A-", "A", "A+"}
+
 GRADE_DOWNGRADE = {
     "A": "B+",
     "B+": "B",
@@ -53,6 +56,66 @@ def _apply_h4_context_to_grade(base_grade: str, h4_context_type: str | None) -> 
     if h4_context_type == "RANGE_EDGE_COMPRESSION":
         return GRADE_DOWNGRADE.get(base_grade, base_grade)
     return base_grade
+
+
+def _coerce_float(value: Any) -> float | None:
+    try:
+        return float(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _derive_chain_state(block: dict[str, Any], action: str) -> dict[str, Any]:
+    standalone_grade = block["pressure_grade"]
+    previous_grade = block.get("previous_block_grade")
+    gap_minutes = _coerce_float(block.get("gap_from_previous_minutes"))
+    density = _coerce_float(block.get("density_per_minute"))
+    max_gap_seconds = _coerce_float(block.get("max_gap_seconds"))
+    relation = block.get("block_relation")
+
+    is_chain_candidate = (
+        relation == "CHAINED_CONTINUATION"
+        and standalone_grade in CHAIN_ELIGIBLE_GRADES
+        and previous_grade in CHAIN_PREVIOUS_GRADES
+        and gap_minutes is not None
+        and gap_minutes <= 10
+        and density is not None
+        and density >= 7
+        and max_gap_seconds is not None
+        and max_gap_seconds <= 60
+    )
+
+    chain_adjusted_grade = standalone_grade
+    chain_type = None
+    execution_mode = None
+    pressure_status = pressure_status_from_grade(standalone_grade)
+
+    if is_chain_candidate:
+        if standalone_grade in {"B+", "A-"}:
+            chain_adjusted_grade = "A"
+        chain_type = (
+            "CONTINUATION_PULSE_AFTER_A_PLUS"
+            if previous_grade == "A+"
+            else "CONTINUATION_PULSE_AFTER_A"
+        )
+        execution_mode = (
+            "INSTANT_EXECUTION_CANDIDATE"
+            if not _is_wait_action(action)
+            else "INSTANT_IF_CHART_TRIGGER_ACTIVE"
+        )
+        pressure_status = "CHAINED_PRIORITY_PRESSURE"
+
+    return {
+        "is_chain_candidate": is_chain_candidate,
+        "standalone_grade": standalone_grade,
+        "chain_adjusted_grade": chain_adjusted_grade,
+        "chain_type": chain_type,
+        "execution_mode": execution_mode,
+        "previous_block_grade": previous_grade,
+        "previous_block_end_wita": block.get("previous_block_end_wita"),
+        "gap_from_previous_minutes": gap_minutes,
+        "pressure_status": pressure_status,
+    }
 
 
 def grade_execution(
@@ -116,6 +179,7 @@ def build_message(
     snapshot: dict[str, Any],
     execution_grade: str,
     execution_side: str,
+    chain_state: dict[str, Any] | None = None,
 ) -> str:
     symbol = block["symbol"]
     pressure_grade = block["pressure_grade"]
@@ -123,6 +187,20 @@ def build_message(
     action = snapshot["action"]
     zone = snapshot.get("entry_zone") or "n/a"
     reason_code = snapshot.get("reason_code") or "UNCLASSIFIED"
+
+    if chain_state and chain_state.get("is_chain_candidate"):
+        previous_grade = chain_state.get("previous_block_grade") or "prior"
+        gap_minutes = chain_state.get("gap_from_previous_minutes")
+        gap_text = f" Gap {gap_minutes:.2f}m." if isinstance(gap_minutes, float) else ""
+        if chain_state.get("execution_mode") == "INSTANT_EXECUTION_CANDIDATE":
+            tail = "Instant execution candidate while chart trigger remains active."
+        else:
+            tail = "Eligible for instant execution only if chart trigger is active."
+        return (
+            f"{symbol} continuation pulse after {previous_grade} block. "
+            f"Standalone {pressure_grade}, chain-adjusted {chain_state['chain_adjusted_grade']}."
+            f"{gap_text} {tail}"
+        )
 
     return (
         f"{symbol} {pressure_grade} pressure. "
@@ -141,14 +219,17 @@ def build_trade_plan(block: dict[str, Any], snapshot: dict[str, Any]) -> dict[st
     action = snapshot["action"]
     h4_context_type = snapshot.get("h4_context_type")
 
-    execution_grade = grade_execution(pressure_grade, chart_phase, h4_context_type)
+    chain_state = _derive_chain_state(block, action)
+    effective_pressure_grade = chain_state["chain_adjusted_grade"]
+
+    execution_grade = grade_execution(effective_pressure_grade, chart_phase, h4_context_type)
     execution_side = map_execution_side(chart_phase)
 
     # Canonical rule: any B+/A-/A/A+ block that has reached this point HAS a
     # trade plan, therefore it belongs in the "ready" bucket on the dashboard.
     # The previous behavior of demoting B+/A- to "watchlist" hid valid plans.
     valid_grades = {"B+", "A-", "A", "A+"}
-    is_valid_pressure = pressure_grade in valid_grades
+    is_valid_pressure = effective_pressure_grade in valid_grades
     has_trade_context = not _is_wait_action(action)
     if is_valid_pressure and has_trade_context:
         signal_bucket = "ready"
@@ -163,7 +244,7 @@ def build_trade_plan(block: dict[str, Any], snapshot: dict[str, Any]) -> dict[st
     # with an actionable execution should ping the owner. B+ and A- continue
     # to live in the dashboard but should not generate noisy alerts.
     owner_alert = (
-        pressure_grade in {"A", "A+"}
+        effective_pressure_grade in {"A", "A+"}
         and is_actionable_signal(execution_grade, action)
     )
 
@@ -183,10 +264,17 @@ def build_trade_plan(block: dict[str, Any], snapshot: dict[str, Any]) -> dict[st
     return {
         "symbol": block["symbol"],
         "signal_type": "SIGNAL_THROTTLE_PRESSURE",
-        "pressure_status": pressure_status_from_grade(pressure_grade),
+        "pressure_status": chain_state["pressure_status"],
         "signal_bucket": signal_bucket,
         "owner_alert": owner_alert,
         "pressure_grade": pressure_grade,
+        "standalone_grade": chain_state["standalone_grade"],
+        "chain_adjusted_grade": chain_state["chain_adjusted_grade"],
+        "chain_type": chain_state["chain_type"],
+        "execution_mode": chain_state["execution_mode"],
+        "previous_block_grade": chain_state["previous_block_grade"],
+        "previous_block_end_wita": chain_state["previous_block_end_wita"],
+        "gap_from_previous_minutes": chain_state["gap_from_previous_minutes"],
         "execution_grade": execution_grade,
         "execution_side": execution_side,
         "signal_start_utc": block.get("start_utc"),
@@ -215,9 +303,19 @@ def build_trade_plan(block: dict[str, Any], snapshot: dict[str, Any]) -> dict[st
         "tp1": snapshot.get("tp1"),
         "tp2": snapshot.get("tp2"),
         "tp3": snapshot.get("tp3"),
-        "message": build_message(block, snapshot, execution_grade, execution_side),
+        "message": build_message(block, snapshot, execution_grade, execution_side, chain_state),
         "payload": {
             "block": block,
+            "chain_context": {
+                "is_chain_candidate": chain_state["is_chain_candidate"],
+                "standalone_grade": chain_state["standalone_grade"],
+                "chain_adjusted_grade": chain_state["chain_adjusted_grade"],
+                "chain_type": chain_state["chain_type"],
+                "execution_mode": chain_state["execution_mode"],
+                "previous_block_grade": chain_state["previous_block_grade"],
+                "previous_block_end_wita": chain_state["previous_block_end_wita"],
+                "gap_from_previous_minutes": chain_state["gap_from_previous_minutes"],
+            },
             "snapshot": {
                 key: value
                 for key, value in snapshot.items()

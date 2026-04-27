@@ -19,6 +19,7 @@ class FakeRepo:
     def __init__(self) -> None:
         self.marks: list[dict[str, Any]] = []
         self.trade_plan_for_block: dict | None = None
+        self.previous_block: dict | None = None
 
     async def mark_block_market_context_status(
         self,
@@ -39,6 +40,15 @@ class FakeRepo:
 
     async def get_trade_plan_for_block(self, block_id: int):
         return self.trade_plan_for_block
+
+    async def get_previous_block_before(
+        self,
+        symbol: str,
+        start_utc,
+        *,
+        exclude_block_id: int | None = None,
+    ):
+        return self.previous_block
 
 
 def test_enrich_records_finnhub_key_missing(monkeypatch) -> None:

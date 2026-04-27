@@ -4,6 +4,7 @@ import logging
 from typing import Any, cast
 
 from ..config import settings
+from ..detector.block_relation import classify_block_relation
 from ..market.finnhub_client import FinnhubClient
 from ..market.market_snapshot_builder import MarketSnapshotBuilder
 from ..storage.repository_protocols import (
@@ -16,6 +17,50 @@ from ..storage.repositories import SignalRepository
 logger = logging.getLogger(__name__)
 
 ELIGIBLE_GRADES = {"B+", "A-", "A", "A+"}
+
+
+async def _attach_chain_context(
+    block: dict[str, Any],
+    repository: MarketContextRepository,
+) -> dict[str, Any]:
+    symbol = block.get("symbol")
+    start_utc = block.get("start_utc")
+    if not symbol or start_utc is None:
+        return block
+
+    previous = await repository.get_previous_block_before(
+        symbol,
+        start_utc,
+        exclude_block_id=block.get("id"),
+    )
+    if not previous:
+        return {
+            **block,
+            "block_relation": block.get("block_relation") or "FIRST_BLOCK",
+        }
+
+    previous_end_utc = previous.get("end_utc")
+    gap_minutes: float | None = None
+    if previous_end_utc is not None:
+        gap_minutes = round((start_utc - previous_end_utc).total_seconds() / 60.0, 2)
+
+    relation = classify_block_relation(gap_minutes, previous.get("pressure_grade"))
+    chain_context = {
+        "previous_block_id": previous.get("id"),
+        "previous_block_grade": previous.get("pressure_grade"),
+        "previous_block_end_wita": previous.get("end_wita"),
+        "gap_from_previous_minutes": gap_minutes,
+        "relation": relation,
+    }
+    return {
+        **block,
+        "previous_block_id": block.get("previous_block_id") or previous.get("id"),
+        "previous_block_grade": previous.get("pressure_grade"),
+        "previous_block_end_wita": previous.get("end_wita"),
+        "gap_from_previous_minutes": gap_minutes,
+        "block_relation": relation,
+        "chain_context": chain_context,
+    }
 
 
 async def enrich_block_with_market_context(
@@ -66,6 +111,8 @@ async def enrich_block_with_market_context(
 
     if block_id is None:
         return None
+
+    block = await _attach_chain_context(block, repository)
 
     existing = await repository.get_trade_plan_for_block(block_id)
     if existing:

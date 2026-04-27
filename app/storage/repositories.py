@@ -791,6 +791,39 @@ class SignalRepository:
             )
             return await cur.fetchone()
 
+    async def get_previous_block_before(
+        self,
+        symbol: str,
+        start_utc: Any,
+        *,
+        exclude_block_id: int | None = None,
+    ) -> dict | None:
+        async with get_cursor() as cur:
+            if exclude_block_id is None:
+                await cur.execute(
+                    """
+                    SELECT * FROM pressure_blocks
+                    WHERE symbol = %s
+                      AND end_utc <= %s
+                    ORDER BY end_utc DESC, id DESC
+                    LIMIT 1
+                    """,
+                    (symbol, start_utc),
+                )
+            else:
+                await cur.execute(
+                    """
+                    SELECT * FROM pressure_blocks
+                    WHERE symbol = %s
+                      AND end_utc <= %s
+                      AND id <> %s
+                    ORDER BY end_utc DESC, id DESC
+                    LIMIT 1
+                    """,
+                    (symbol, start_utc, exclude_block_id),
+                )
+            return await cur.fetchone()
+
     # ----- trade_plans -----
 
     async def insert_trade_plan(self, block_id: int, plan: dict) -> int:

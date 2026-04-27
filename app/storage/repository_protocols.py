@@ -17,6 +17,15 @@ class MarketContextRepository(Protocol):
     async def get_trade_plan_for_block(self, block_id: int) -> dict[str, Any] | None:
         ...
 
+    async def get_previous_block_before(
+        self,
+        symbol: str,
+        start_utc: Any,
+        *,
+        exclude_block_id: int | None = None,
+    ) -> dict[str, Any] | None:
+        ...
+
 
 class MarketContextWriteRepository(MarketContextRepository, Protocol):
 
