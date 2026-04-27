@@ -41,6 +41,10 @@ def pressure_status_from_grade(pressure_grade: str) -> str:
     return "LOW_QUALITY_PRESSURE"
 
 
+def is_actionable_signal(execution_grade: str, action: str) -> bool:
+    return execution_grade in {"A+", "A", "B+"} and action != "NO_TRADE_WAIT_CONTEXT"
+
+
 def build_message(
     block: dict[str, Any],
     snapshot: dict[str, Any],
@@ -70,6 +74,7 @@ def build_trade_plan(block: dict[str, Any], snapshot: dict[str, Any]) -> dict[st
 
     execution_grade = grade_execution(pressure_grade, chart_phase)
     execution_side = map_execution_side(chart_phase)
+    actionable = is_actionable_signal(execution_grade, action)
 
     price_at_end = snapshot.get("price_at_end")
     price_text = None
@@ -81,6 +86,7 @@ def build_trade_plan(block: dict[str, Any], snapshot: dict[str, Any]) -> dict[st
         "symbol": block["symbol"],
         "signal_type": "SIGNAL_THROTTLE_PRESSURE",
         "pressure_status": pressure_status_from_grade(pressure_grade),
+        "signal_bucket": "actionable" if actionable else "watchlist",
         "pressure_grade": pressure_grade,
         "execution_grade": execution_grade,
         "execution_side": execution_side,
@@ -109,7 +115,7 @@ def build_trade_plan(block: dict[str, Any], snapshot: dict[str, Any]) -> dict[st
         "tp2": snapshot.get("tp2"),
         "tp3": snapshot.get("tp3"),
         "message": build_message(block, snapshot, execution_grade, execution_side),
-        "raw": {
+        "payload": {
             "block": block,
             "snapshot": {
                 key: value

@@ -57,7 +57,7 @@
 </section>
 
 <section class="panel">
-  <h2>Latest Trade Plans</h2>
+  <h2>Actionable Signals</h2>
   {% if latest_signals %}
   <div class="table-wrap">
     <table>
@@ -90,7 +90,41 @@
     </table>
   </div>
   {% else %}
-  <p class="empty">No trade plans yet</p>
+  <p class="empty">No actionable signals yet</p>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <h2>Watchlist Signals</h2>
+  {% if watchlist_signals %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Symbol</th>
+          <th>Pressure</th>
+          <th>Exec</th>
+          <th>Phase</th>
+          <th>Action</th>
+          <th>End WITA</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in watchlist_signals %}
+        <tr>
+          <td class="symbol"><a href="/signal-detail/{{ s.id }}">{{ s.symbol }}</a></td>
+          <td><span class="badge">{{ s.pressure_grade }}</span></td>
+          <td><span class="badge">{{ s.execution_grade }}</span></td>
+          <td>{{ s.chart_phase }}</td>
+          <td>{{ s.action }}</td>
+          <td>{{ s.signal_end_wita or '-' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No watchlist signals yet</p>
   {% endif %}
 </section>
 

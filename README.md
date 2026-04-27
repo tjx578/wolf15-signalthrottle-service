@@ -708,6 +708,20 @@ Payload:
 GET /signals/latest
 ```
 
+Optional query params:
+
+```text
+limit=20
+bucket=all|actionable|watchlist
+```
+
+Examples:
+
+```http
+GET /signals/latest?bucket=actionable
+GET /signals/latest?bucket=watchlist
+```
+
 ### Active blocks
 
 ```http
@@ -747,7 +761,8 @@ Tables:
 
 ```text
 Active pressure blocks
-Latest finalized trade plans
+Actionable signals
+Watchlist signals
 Outcome by phase/grade
 ```
 

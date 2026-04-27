@@ -3,11 +3,11 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from app.config import settings
-from app.market.finnhub_client import FinnhubClient
-from app.market.market_snapshot_builder import MarketSnapshotBuilder
-from app.planner.trade_plan_builder import build_trade_plan
-from app.storage.repositories import SignalRepository
+from ..config import settings
+from ..market.finnhub_client import FinnhubClient
+from ..market.market_snapshot_builder import MarketSnapshotBuilder
+from .trade_plan_builder import build_trade_plan
+from ..storage.repositories import SignalRepository
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +45,6 @@ async def enrich_block_with_market_context(
         trade_plan = build_trade_plan(block, snapshot)
         trade_plan["block_id"] = block_id
         trade_plan["market_snapshot_id"] = snapshot_id
-        trade_plan["payload"] = trade_plan.get("raw", {})
         trade_plan_id = await repository.insert_trade_plan(block_id, trade_plan)
         trade_plan["id"] = trade_plan_id
         return trade_plan

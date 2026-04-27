@@ -46,8 +46,27 @@ class FakeSignalRepository:
         self.__class__.trade_plans.append(record)
         return self.__class__.trade_plan_id
 
-    async def get_latest_trade_plans(self, limit: int = 20) -> list[dict]:
-        return list(reversed(self.__class__.trade_plans))[:limit]
+    async def get_latest_trade_plans(
+        self,
+        limit: int = 20,
+        bucket: str = "all",
+    ) -> list[dict]:
+        plans = list(reversed(self.__class__.trade_plans))
+        if bucket == "actionable":
+            plans = [
+                plan
+                for plan in plans
+                if plan.get("execution_grade") in {"A+", "A", "B+"}
+                and plan.get("action") != "NO_TRADE_WAIT_CONTEXT"
+            ]
+        elif bucket == "watchlist":
+            plans = [
+                plan
+                for plan in plans
+                if plan.get("execution_grade") == "C"
+                or plan.get("action") == "NO_TRADE_WAIT_CONTEXT"
+            ]
+        return plans[:limit]
 
 
 async def _noop() -> None:

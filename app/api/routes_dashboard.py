@@ -6,7 +6,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
-from app.storage.repositories import SignalRepository
+from ..storage.repositories import SignalRepository
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -18,12 +18,14 @@ async def dashboard_home(request: Request):
     try:
         repo = SignalRepository()
         active_blocks = await repo.get_active_blocks()
-        latest_signals = await repo.get_latest_trade_plans(limit=20)
+        latest_signals = await repo.get_latest_trade_plans(limit=12, bucket="actionable")
+        watchlist_signals = await repo.get_latest_trade_plans(limit=12, bucket="watchlist")
         stats = await repo.get_dashboard_stats()
     except Exception as exc:
         logger.warning("Dashboard DB query failed: %s", exc)
         active_blocks = []
         latest_signals = []
+        watchlist_signals = []
         stats = {
             "active_blocks": 0,
             "priority_signals": 0,
@@ -37,6 +39,7 @@ async def dashboard_home(request: Request):
             "request": request,
             "active_blocks": active_blocks,
             "latest_signals": latest_signals,
+            "watchlist_signals": watchlist_signals,
             "stats": stats,
         },
     )

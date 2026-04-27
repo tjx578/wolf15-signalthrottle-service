@@ -8,10 +8,13 @@ router = APIRouter()
 
 
 @router.get("/latest")
-async def latest_signals(limit: int = 20):
+async def latest_signals(limit: int = 20, bucket: str = "all"):
     repo = SignalRepository()
-    plans = await repo.get_latest_trade_plans(limit=limit)
-    return {"count": len(plans), "signals": plans}
+    normalized_bucket = bucket.lower()
+    if normalized_bucket not in {"all", "actionable", "watchlist"}:
+        normalized_bucket = "all"
+    plans = await repo.get_latest_trade_plans(limit=limit, bucket=normalized_bucket)
+    return {"count": len(plans), "bucket": normalized_bucket, "signals": plans}
 
 
 @router.get("/{signal_id}")

@@ -235,28 +235,66 @@ class SignalRepository:
                     plan.get("tp2"),
                     plan.get("tp3"),
                     plan.get("message"),
-                    _json_or_none(plan),
+                    _json_or_none(plan.get("payload") or {}),
                 ),
             )
             row = await cur.fetchone()
             assert row is not None
             return row["id"]
 
-    async def get_latest_trade_plans(self, limit: int = 20) -> list[dict]:
+    async def get_latest_trade_plans(
+        self,
+        limit: int = 20,
+        bucket: str = "all",
+    ) -> list[dict]:
         async with get_cursor() as cur:
-            await cur.execute(
-                """
-                SELECT tp.*, pb.start_wita AS signal_start_wita,
-                       pb.end_wita AS signal_end_wita,
-                       pb.duration_minutes, pb.event_count,
-                       pb.density_per_minute
-                FROM trade_plans tp
-                LEFT JOIN pressure_blocks pb ON tp.block_id = pb.id
-                ORDER BY tp.created_at DESC
-                LIMIT %s
-                """,
-                (limit,),
-            )
+            if bucket == "actionable":
+                await cur.execute(
+                    """
+                    SELECT tp.*, pb.start_wita AS signal_start_wita,
+                           pb.end_wita AS signal_end_wita,
+                           pb.duration_minutes, pb.event_count,
+                           pb.density_per_minute
+                    FROM trade_plans tp
+                    LEFT JOIN pressure_blocks pb ON tp.block_id = pb.id
+                    WHERE tp.execution_grade IN ('A+', 'A', 'B+')
+                      AND tp.action <> 'NO_TRADE_WAIT_CONTEXT'
+                    ORDER BY tp.created_at DESC
+                    LIMIT %s
+                    """,
+                    (limit,),
+                )
+            elif bucket == "watchlist":
+                await cur.execute(
+                    """
+                    SELECT tp.*, pb.start_wita AS signal_start_wita,
+                           pb.end_wita AS signal_end_wita,
+                           pb.duration_minutes, pb.event_count,
+                           pb.density_per_minute
+                    FROM trade_plans tp
+                    LEFT JOIN pressure_blocks pb ON tp.block_id = pb.id
+                    WHERE tp.execution_grade = 'C'
+                       OR tp.action = 'NO_TRADE_WAIT_CONTEXT'
+                       OR tp.pressure_status = 'WATCHLIST_PRESSURE'
+                    ORDER BY tp.created_at DESC
+                    LIMIT %s
+                    """,
+                    (limit,),
+                )
+            else:
+                await cur.execute(
+                    """
+                    SELECT tp.*, pb.start_wita AS signal_start_wita,
+                           pb.end_wita AS signal_end_wita,
+                           pb.duration_minutes, pb.event_count,
+                           pb.density_per_minute
+                    FROM trade_plans tp
+                    LEFT JOIN pressure_blocks pb ON tp.block_id = pb.id
+                    ORDER BY tp.created_at DESC
+                    LIMIT %s
+                    """,
+                    (limit,),
+                )
             return await cur.fetchall()
 
     async def get_trade_plan(self, plan_id: int) -> dict | None:

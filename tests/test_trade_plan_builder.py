@@ -33,7 +33,9 @@ def test_build_plan_a_grade():
     assert result["symbol"] == "USDJPY"
     assert result["pressure_grade"] == "A"
     assert result["execution_grade"] == "A"
+    assert result["signal_bucket"] == "actionable"
     assert result["execution_side"] == "BUY_CONTINUATION"
+    assert result["payload"]["block"]["symbol"] == "USDJPY"
     assert "USDJPY" in result["message"]
 
 
@@ -56,4 +58,5 @@ def test_build_plan_c_grade():
     result = build_trade_plan(block, snapshot)
 
     assert result["execution_grade"] == "C"
+    assert result["signal_bucket"] == "watchlist"
     assert result["execution_side"] == "NO_TRADE"
