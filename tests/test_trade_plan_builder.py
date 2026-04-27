@@ -190,6 +190,7 @@ def test_build_plan_b_plus_with_actionable_phase_promoted_to_ready() -> None:
     assert result["pressure_grade"] == "B+"
     assert result["signal_bucket"] == "ready"
     assert result["owner_alert"] is False
+    assert result["execution_mode"] == "INSTANT_EXECUTION_CANDIDATE"
     assert result["reason_code"] == "PIVOT_RECLAIM_VALID"
 
 
@@ -360,3 +361,45 @@ def test_build_plan_nzdchf_business_case_continuation_pulse_after_a_plus() -> No
     assert result["previous_block_end_wita"] == "2026-04-23 13:01:27"
     assert result["gap_from_previous_minutes"] == 4.82
     assert "Standalone B+, chain-adjusted A" in result["message"]
+
+
+def test_build_plan_nzdchf3_standalone_bearish_pullback_is_instant_sell_candidate() -> None:
+    block = {
+        "symbol": "NZDCHF",
+        "pressure_grade": "A-",
+        "start_utc": "2026-04-23T09:42:03Z",
+        "end_utc": "2026-04-23T10:00:17Z",
+        "start_wita": "2026-04-23 17:42:03",
+        "end_wita": "2026-04-23 18:00:17",
+        "duration_minutes": 18.23,
+        "event_count": 128,
+        "density_per_minute": 7.02,
+        "max_gap_seconds": 33.14,
+        "avg_gap_seconds": 8.55,
+        "block_relation": "NEW_SESSION_SIGNAL",
+        "gap_from_previous_minutes": 266.33,
+    }
+    snapshot = {
+        "price_at_end": 0.46174,
+        "chart_bias": "TRANSITION_AFTER_RALLY",
+        "chart_phase": "BEARISH_PULLBACK_CONTINUATION",
+        "h4_context_type": "RANGE_OR_TRANSITION",
+        "action": "SELL_ON_RALLY_OR_CONTINUATION",
+        "reason_code": "LOWER_HIGH_REJECTION",
+        "entry_zone": "0.46114-0.46234",
+        "invalidation": "0.46354",
+        "tp1": "0.45974",
+        "tp2": "0.46020-0.46060",
+        "tp3": "0.45674",
+    }
+
+    result = build_trade_plan(block, snapshot)
+
+    assert result["chain_type"] is None
+    assert result["execution_grade"] == "A"
+    assert result["execution_side"] == "SELL_ON_RALLY_OR_CONTINUATION"
+    assert result["execution_mode"] == "INSTANT_EXECUTION_CANDIDATE"
+    assert result["signal_bucket"] == "ready"
+    assert result["owner_alert"] is False
+    assert result["price_at_signal_end"] == "0.46174"
+    assert result["reason_code"] == "LOWER_HIGH_REJECTION"

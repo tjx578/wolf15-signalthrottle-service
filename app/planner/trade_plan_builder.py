@@ -29,6 +29,7 @@ WAIT_ACTIONS = {
 
 CHAIN_PREVIOUS_GRADES = {"A", "A+"}
 CHAIN_ELIGIBLE_GRADES = {"B+", "A-", "A", "A+"}
+INSTANT_ELIGIBLE_GRADES = {"B+", "A-", "A", "A+"}
 
 GRADE_DOWNGRADE = {
     "A": "B+",
@@ -116,6 +117,26 @@ def _derive_chain_state(block: dict[str, Any], action: str) -> dict[str, Any]:
         "gap_from_previous_minutes": gap_minutes,
         "pressure_status": pressure_status,
     }
+
+
+def _derive_execution_mode(
+    *,
+    effective_pressure_grade: str,
+    chart_phase: str,
+    action: str,
+    chain_execution_mode: str | None,
+) -> str | None:
+    if chain_execution_mode is not None:
+        return chain_execution_mode
+
+    if (
+        effective_pressure_grade in INSTANT_ELIGIBLE_GRADES
+        and chart_phase in STRONG_PHASES
+        and not _is_wait_action(action)
+    ):
+        return "INSTANT_EXECUTION_CANDIDATE"
+
+    return None
 
 
 def grade_execution(
@@ -221,6 +242,12 @@ def build_trade_plan(block: dict[str, Any], snapshot: dict[str, Any]) -> dict[st
 
     chain_state = _derive_chain_state(block, action)
     effective_pressure_grade = chain_state["chain_adjusted_grade"]
+    execution_mode = _derive_execution_mode(
+        effective_pressure_grade=effective_pressure_grade,
+        chart_phase=chart_phase,
+        action=action,
+        chain_execution_mode=chain_state["execution_mode"],
+    )
 
     execution_grade = grade_execution(effective_pressure_grade, chart_phase, h4_context_type)
     execution_side = map_execution_side(chart_phase)
@@ -271,7 +298,7 @@ def build_trade_plan(block: dict[str, Any], snapshot: dict[str, Any]) -> dict[st
         "standalone_grade": chain_state["standalone_grade"],
         "chain_adjusted_grade": chain_state["chain_adjusted_grade"],
         "chain_type": chain_state["chain_type"],
-        "execution_mode": chain_state["execution_mode"],
+        "execution_mode": execution_mode,
         "previous_block_grade": chain_state["previous_block_grade"],
         "previous_block_end_wita": chain_state["previous_block_end_wita"],
         "gap_from_previous_minutes": chain_state["gap_from_previous_minutes"],
@@ -311,7 +338,7 @@ def build_trade_plan(block: dict[str, Any], snapshot: dict[str, Any]) -> dict[st
                 "standalone_grade": chain_state["standalone_grade"],
                 "chain_adjusted_grade": chain_state["chain_adjusted_grade"],
                 "chain_type": chain_state["chain_type"],
-                "execution_mode": chain_state["execution_mode"],
+                "execution_mode": execution_mode,
                 "previous_block_grade": chain_state["previous_block_grade"],
                 "previous_block_end_wita": chain_state["previous_block_end_wita"],
                 "gap_from_previous_minutes": chain_state["gap_from_previous_minutes"],
