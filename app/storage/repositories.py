@@ -719,6 +719,19 @@ class SignalRepository:
             )
             return await cur.fetchall()
 
+    async def get_outcome(self, outcome_id: int) -> dict | None:
+        async with get_cursor() as cur:
+            await cur.execute(
+                """
+                SELECT so.*, tp.action
+                FROM signal_outcomes so
+                LEFT JOIN trade_plans tp ON tp.id = so.trade_plan_id
+                WHERE so.id = %s
+                """,
+                (outcome_id,),
+            )
+            return await cur.fetchone()
+
     async def get_outcome_summary(self) -> dict:
         async with get_cursor() as cur:
             await cur.execute(

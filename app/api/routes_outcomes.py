@@ -43,3 +43,14 @@ async def backfill_outcomes(limit: int = 50):
     worker = OutcomeWorker()
     stats = await worker.process_due_outcomes(limit=limit)
     return {"status": "processed", "stats": stats}
+
+
+# IMPORTANT: keep dynamic /{outcome_id} route LAST so it does not swallow
+# /latest, /summary, /by-phase, /by-grade, /backfill.
+@router.get("/{outcome_id}")
+async def outcome_detail(outcome_id: int):
+    repo = SignalRepository()
+    row = await repo.get_outcome(outcome_id)
+    if not row:
+        return {"status": "not_found", "outcome_id": outcome_id}
+    return row
