@@ -64,14 +64,26 @@ class FakeSignalRepository:
                 {
                     "id": None,
                     "trade_plan_id": None,
+                    "block_id": 1,
+                    "symbol": "EURGBP",
+                    "pressure_grade": "C",
+                    "execution_grade": None,
+                    "action": None,
+                    "trade_plan_status": "NOT_REQUIRED",
+                    "market_context_status": "NOT_REQUIRED",
+                    "dashboard_bucket": "radar_below_threshold",
+                },
+                {
+                    "id": None,
+                    "trade_plan_id": None,
                     "block_id": 7,
                     "symbol": "GBPUSD",
                     "pressure_grade": "B+",
                     "execution_grade": None,
                     "action": None,
-                    "trade_plan_status": "TRADE_PLAN_PENDING",
+                    "trade_plan_status": "TRADE_PLAN_REQUIRED",
                     "market_context_status": "PENDING_OR_FAILED",
-                    "dashboard_bucket": "watchlist",
+                    "dashboard_bucket": "watchlist_trade_plan_pending",
                 },
                 {
                     "id": 8,
@@ -81,9 +93,9 @@ class FakeSignalRepository:
                     "pressure_grade": "A-",
                     "execution_grade": "B+",
                     "action": "WAIT_BREAKDOWN_OR_RECLAIM",
-                    "trade_plan_status": "TRADE_PLAN_READY",
+                    "trade_plan_status": "READY",
                     "market_context_status": "READY",
-                    "dashboard_bucket": "highlighted",
+                    "dashboard_bucket": "trade_plan_ready",
                 },
                 {
                     "id": 2,
@@ -93,25 +105,41 @@ class FakeSignalRepository:
                     "pressure_grade": "A",
                     "execution_grade": "A",
                     "action": "BUY_ON_RETEST_OR_RECLAIM_HOLD",
-                    "trade_plan_status": "TRADE_PLAN_READY",
+                    "trade_plan_status": "READY",
                     "market_context_status": "READY",
-                    "dashboard_bucket": "priority",
+                    "dashboard_bucket": "trade_plan_ready",
                 },
+            ],
+            "radar": [
+                {
+                    "id": None,
+                    "trade_plan_id": None,
+                    "block_id": 1,
+                    "symbol": "EURGBP",
+                    "pressure_grade": "C",
+                    "execution_grade": None,
+                    "action": None,
+                    "trade_plan_status": "NOT_REQUIRED",
+                    "market_context_status": "NOT_REQUIRED",
+                    "dashboard_bucket": "radar_below_threshold",
+                }
             ],
             "watchlist": [
                 {
-                    "id": 7,
-                    "trade_plan_id": 7,
+                    "id": None,
+                    "trade_plan_id": None,
                     "block_id": 7,
                     "symbol": "GBPUSD",
                     "pressure_grade": "B+",
-                    "execution_grade": "B+",
-                    "action": "WAIT_SUPPORT_REACTION_OR_RECLAIM",
-                    "trade_plan_status": "READY",
-                    "market_context_status": "READY",
-                    "dashboard_bucket": "watchlist_tradeplan",
-                    "owner_alert": "OPTIONAL",
+                    "execution_grade": None,
+                    "action": None,
+                    "trade_plan_status": "TRADE_PLAN_REQUIRED",
+                    "market_context_status": "PENDING_OR_FAILED",
+                    "dashboard_bucket": "watchlist_trade_plan_pending",
+                    "owner_alert": "PENDING",
                 },
+            ],
+            "ready": [
                 {
                     "id": 8,
                     "trade_plan_id": 8,
@@ -120,9 +148,9 @@ class FakeSignalRepository:
                     "pressure_grade": "A-",
                     "execution_grade": "B+",
                     "action": "WAIT_BREAKDOWN_OR_RECLAIM",
-                    "trade_plan_status": "TRADE_PLAN_READY",
+                    "trade_plan_status": "READY",
                     "market_context_status": "READY",
-                    "dashboard_bucket": "highlighted_tradeplan",
+                    "dashboard_bucket": "trade_plan_ready",
                 },
             ],
             "highlighted": [
@@ -136,7 +164,7 @@ class FakeSignalRepository:
                     "action": "WAIT_BREAKDOWN_OR_RECLAIM",
                     "trade_plan_status": "READY",
                     "market_context_status": "READY",
-                    "dashboard_bucket": "highlighted_tradeplan",
+                    "dashboard_bucket": "trade_plan_ready",
                 },
             ],
             "actionable": [
@@ -150,7 +178,7 @@ class FakeSignalRepository:
                     "action": "BUY_ON_RETEST_OR_RECLAIM_HOLD",
                     "trade_plan_status": "READY",
                     "market_context_status": "READY",
-                    "dashboard_bucket": "priority_tradeplan",
+                    "dashboard_bucket": "trade_plan_ready",
                 },
             ],
             "priority": [
@@ -164,7 +192,7 @@ class FakeSignalRepository:
                     "action": "BUY_ON_RETEST_OR_RECLAIM_HOLD",
                     "trade_plan_status": "READY",
                     "market_context_status": "READY",
-                    "dashboard_bucket": "priority_tradeplan",
+                    "dashboard_bucket": "trade_plan_ready",
                 },
             ],
         }
@@ -204,8 +232,8 @@ def test_latest_signals_invalid_bucket_falls_back_to_all(monkeypatch) -> None:
     assert response.status_code == 200
     payload = response.json()
     assert payload["bucket"] == "all"
-    assert payload["count"] == 3
-    assert payload["signals"][0]["symbol"] == "GBPUSD"
+    assert payload["count"] == 4
+    assert payload["signals"][0]["symbol"] == "EURGBP"
 
 
 def test_latest_signals_watchlist_includes_b_plus(monkeypatch) -> None:
@@ -222,13 +250,12 @@ def test_latest_signals_watchlist_includes_b_plus(monkeypatch) -> None:
     assert response.status_code == 200
     payload = response.json()
     assert payload["bucket"] == "watchlist"
-    assert payload["count"] == 2
+    assert payload["count"] == 1
     assert payload["signals"][0]["symbol"] == "GBPUSD"
-    assert payload["signals"][0]["trade_plan_status"] == "READY"
-    assert payload["signals"][0]["execution_grade"] == "B+"
-    assert payload["signals"][0]["dashboard_bucket"] == "watchlist_tradeplan"
-    assert payload["signals"][0]["owner_alert"] == "OPTIONAL"
-    assert payload["signals"][1]["execution_grade"] == "B+"
+    assert payload["signals"][0]["trade_plan_status"] == "TRADE_PLAN_REQUIRED"
+    assert payload["signals"][0]["execution_grade"] is None
+    assert payload["signals"][0]["dashboard_bucket"] == "watchlist_trade_plan_pending"
+    assert payload["signals"][0]["owner_alert"] == "PENDING"
 
 
 def test_latest_signals_priority_returns_a_grades(monkeypatch) -> None:
@@ -247,4 +274,23 @@ def test_latest_signals_priority_returns_a_grades(monkeypatch) -> None:
     assert payload["bucket"] == "priority"
     assert payload["count"] == 1
     assert payload["signals"][0]["pressure_grade"] == "A"
-    assert payload["signals"][0]["dashboard_bucket"] == "priority_tradeplan"
+    assert payload["signals"][0]["dashboard_bucket"] == "trade_plan_ready"
+
+
+def test_latest_signals_radar_returns_below_threshold_rows(monkeypatch) -> None:
+    monkeypatch.setattr(lifecycle, "init_db", _noop)
+    monkeypatch.setattr(lifecycle, "run_migrations", _noop)
+    monkeypatch.setattr(lifecycle, "close_db", _noop)
+    monkeypatch.setattr(routes_signals, "SignalRepository", FakeSignalRepository)
+
+    app = create_app()
+    client = TestClient(app)
+
+    response = client.get("/signals/latest", params={"bucket": "radar"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["bucket"] == "radar"
+    assert payload["count"] == 1
+    assert payload["signals"][0]["symbol"] == "EURGBP"
+    assert payload["signals"][0]["dashboard_bucket"] == "radar_below_threshold"

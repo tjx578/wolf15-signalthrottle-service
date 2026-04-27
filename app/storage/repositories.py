@@ -500,34 +500,21 @@ class SignalRepository:
         bucket: str = "watchlist",
     ) -> list[dict]:
         normalized_bucket = bucket.lower()
-        if normalized_bucket not in {"all", "watchlist", "highlighted", "priority", "actionable"}:
+        if normalized_bucket not in {
+            "all",
+            "radar",
+            "watchlist",
+            "ready",
+            "highlighted",
+            "priority",
+            "actionable",
+        }:
             normalized_bucket = "all"
-
-        grade_map: dict[str, tuple[str, ...]] = {
-            "all": ("B+", "A-", "A", "A+"),
-            "watchlist": ("B+", "A-", "A", "A+"),
-            "highlighted": ("A-", "A", "A+"),
-            "priority": ("A", "A+"),
-            "actionable": ("A-", "A", "A+"),
-        }
-        grades = grade_map[normalized_bucket]
-        fetch_limit = max(limit * 10, limit)
-
-        if normalized_bucket == "actionable":
-            where_clause = """
-                pb.pressure_grade = ANY(%s)
-                AND tp.id IS NOT NULL
-                AND tp.execution_grade = ANY(%s)
-                AND COALESCE(tp.action, '') NOT IN ('NO_TRADE', 'NO_TRADE_WAIT_CONTEXT')
-            """
-            params: tuple[Any, ...] = (list(grades), ["B+", "A", "A+"], fetch_limit)
-        else:
-            where_clause = "pb.pressure_grade = ANY(%s)"
-            params = (list(grades), fetch_limit)
+        fetch_limit = max(limit * 20, 100)
 
         async with get_cursor() as cur:
             await cur.execute(
-                f"""
+                """
                 SELECT
                     tp.id,
                     tp.id AS trade_plan_id,
@@ -548,6 +535,7 @@ class SignalRepository:
                     pb.is_active,
                     tp.execution_grade,
                     tp.execution_side,
+                    tp.chart_phase,
                     tp.action,
                     tp.entry_zone,
                     tp.invalidation,
@@ -555,57 +543,39 @@ class SignalRepository:
                     tp.signal_bucket,
                     tp.pressure_status AS trade_plan_pressure_status,
                     CASE
-                        WHEN tp.id IS NULL THEN 'CONTEXT_PENDING'
-                        WHEN COALESCE(tp.action, '') IN ('NO_TRADE', 'NO_TRADE_WAIT_CONTEXT', 'WAIT') THEN 'WAIT'
-                        ELSE 'READY'
+                        WHEN pb.pressure_grade IN ('B+', 'A-', 'A', 'A+') AND tp.id IS NULL THEN 'TRADE_PLAN_REQUIRED'
+                        WHEN pb.pressure_grade IN ('B+', 'A-', 'A', 'A+') AND tp.id IS NOT NULL THEN 'READY'
+                        ELSE 'NOT_REQUIRED'
                     END AS trade_plan_status,
                     CASE
-                        WHEN tp.id IS NULL THEN 'PENDING_OR_FAILED'
-                        ELSE 'READY'
+                        WHEN pb.pressure_grade IN ('B+', 'A-', 'A', 'A+') AND tp.id IS NULL THEN 'PENDING_OR_FAILED'
+                        WHEN pb.pressure_grade IN ('B+', 'A-', 'A', 'A+') AND tp.id IS NOT NULL THEN 'READY'
+                        ELSE 'NOT_REQUIRED'
                     END AS market_context_status,
                     CASE
-                        WHEN pb.pressure_grade = 'B+'
-                            AND tp.id IS NOT NULL
-                            AND tp.execution_grade IN ('B+', 'A', 'A+')
-                            AND COALESCE(tp.action, '') NOT IN ('NO_TRADE', 'NO_TRADE_WAIT_CONTEXT', 'WAIT')
-                        THEN 'watchlist_tradeplan'
-                        WHEN pb.pressure_grade = 'A-'
-                            AND tp.id IS NOT NULL
-                            AND tp.execution_grade IN ('B+', 'A', 'A+')
-                            AND COALESCE(tp.action, '') NOT IN ('NO_TRADE', 'NO_TRADE_WAIT_CONTEXT', 'WAIT')
-                        THEN 'highlighted_tradeplan'
-                        WHEN pb.pressure_grade IN ('A', 'A+')
-                            AND tp.id IS NOT NULL
-                            AND tp.execution_grade = 'A'
-                            AND COALESCE(tp.action, '') NOT IN ('NO_TRADE', 'NO_TRADE_WAIT_CONTEXT', 'WAIT')
-                        THEN 'priority_tradeplan'
-                        WHEN pb.pressure_grade = 'B+' THEN 'watchlist'
-                        WHEN pb.pressure_grade = 'A-' THEN 'highlighted'
-                        WHEN pb.pressure_grade = 'A' THEN 'priority'
-                        WHEN pb.pressure_grade = 'A+' THEN 'top_priority'
-                        ELSE 'archive'
+                        WHEN pb.pressure_grade NOT IN ('B+', 'A-', 'A', 'A+') THEN 'radar_below_threshold'
+                        WHEN tp.id IS NULL THEN 'watchlist_trade_plan_pending'
+                        ELSE 'trade_plan_ready'
                     END AS dashboard_bucket,
                     CASE
-                        WHEN pb.pressure_grade = 'B+'
-                            AND tp.id IS NOT NULL
-                            AND tp.execution_grade IN ('B+', 'A', 'A+')
-                            AND COALESCE(tp.action, '') NOT IN ('NO_TRADE', 'NO_TRADE_WAIT_CONTEXT', 'WAIT')
-                        THEN 'OPTIONAL'
-                        WHEN pb.pressure_grade = 'A-'
-                            AND tp.id IS NOT NULL
-                            AND tp.execution_grade IN ('B+', 'A', 'A+')
-                            AND COALESCE(tp.action, '') NOT IN ('NO_TRADE', 'NO_TRADE_WAIT_CONTEXT', 'WAIT')
-                        THEN 'OPTIONAL'
-                        WHEN pb.pressure_grade IN ('A', 'A+')
-                             AND tp.id IS NOT NULL
-                             AND tp.execution_grade = 'A'
-                        THEN 'YES'
+                        WHEN pb.pressure_grade IN ('A', 'A+') AND tp.id IS NOT NULL THEN 'YES'
+                        WHEN pb.pressure_grade IN ('B+', 'A-') AND tp.id IS NOT NULL THEN 'OPTIONAL'
+                        WHEN pb.pressure_grade IN ('B+', 'A-', 'A', 'A+') THEN 'PENDING'
                         ELSE 'NO'
                     END AS owner_alert,
-                    COALESCE(
-                        tp.message,
-                        pb.symbol || ' ' || pb.pressure_grade || ' pressure detected. Valid watchlist signal. Trade plan pending.'
-                    ) AS display_message
+                    CASE
+                        WHEN pb.pressure_grade NOT IN ('B+', 'A-', 'A', 'A+') AND pb.duration_minutes < %s THEN
+                            pb.symbol || ' ' || pb.pressure_grade || ' pressure is below threshold. Duration ' || ROUND(pb.duration_minutes::numeric, 2) || 'm is below minimum radar threshold ' || %s || 'm.'
+                        WHEN pb.pressure_grade NOT IN ('B+', 'A-', 'A', 'A+') THEN
+                            pb.symbol || ' ' || pb.pressure_grade || ' pressure is below B+. Visible as radar only, not yet eligible for trade-plan processing.'
+                        WHEN tp.id IS NULL THEN
+                            pb.symbol || ' ' || pb.pressure_grade || ' pressure is valid. Trade plan is required and still pending market-context enrichment.'
+                        ELSE COALESCE(tp.message, pb.symbol || ' ' || pb.pressure_grade || ' pressure has a ready trade plan.')
+                    END AS display_message,
+                    CASE
+                        WHEN pb.pressure_grade IN ('B+', 'A-', 'A', 'A+') THEN TRUE
+                        ELSE FALSE
+                    END AS trade_plan_required
                 FROM pressure_blocks pb
                 LEFT JOIN LATERAL (
                     SELECT *
@@ -614,14 +584,13 @@ class SignalRepository:
                     ORDER BY tp.created_at DESC
                     LIMIT 1
                 ) tp ON TRUE
-                WHERE {where_clause}
                 ORDER BY pb.end_utc DESC, pb.id DESC
                 LIMIT %s
                 """,
-                params,
+                (settings.min_radar_minutes, settings.min_radar_minutes, fetch_limit),
             )
             rows = await cur.fetchall()
-            return _dedupe_latest_signal_rows(rows, limit=limit)
+            return _select_latest_signal_rows(rows, bucket=normalized_bucket, limit=limit)
 
     async def get_trade_plan(self, plan_id: int) -> dict | None:
         async with get_cursor() as cur:
@@ -1025,20 +994,52 @@ def _phase_grade_row(row: dict, *, key: str | None = None) -> dict:
     return out
 
 
-def _dedupe_latest_signal_rows(rows: list[dict], limit: int | None = None) -> list[dict]:
-    deduped: list[dict] = []
-    seen_keys: set[tuple[Any, Any, Any]] = set()
+def _select_latest_signal_rows(
+    rows: list[dict],
+    *,
+    bucket: str,
+    limit: int | None = None,
+) -> list[dict]:
+    collapsed: list[dict] = []
+    seen_symbols: set[Any] = set()
 
     for row in rows:
-        key = (row.get("symbol"), row.get("start_utc"), row.get("end_utc"))
-        if key in seen_keys:
+        symbol = row.get("symbol")
+        if symbol in seen_symbols:
             continue
-        seen_keys.add(key)
-        deduped.append(row)
-        if limit is not None and len(deduped) >= limit:
-            break
+        seen_symbols.add(symbol)
+        collapsed.append(row)
 
-    return deduped
+    filtered = [row for row in collapsed if _matches_signal_bucket(row, bucket)]
+    if limit is None:
+        return filtered
+    return filtered[:limit]
+
+
+def _matches_signal_bucket(row: dict, bucket: str) -> bool:
+    pressure_grade = row.get("pressure_grade")
+    has_trade_plan = bool(row.get("trade_plan_id"))
+    execution_grade = row.get("execution_grade")
+    action = row.get("action") or ""
+    valid_grades = {"B+", "A-", "A", "A+"}
+    actionable_grades = {"B+", "A", "A+"}
+    wait_actions = {"NO_TRADE", "NO_TRADE_WAIT_CONTEXT", "WAIT"}
+
+    if bucket == "all":
+        return True
+    if bucket == "radar":
+        return pressure_grade not in valid_grades
+    if bucket == "watchlist":
+        return pressure_grade in valid_grades and not has_trade_plan
+    if bucket == "ready":
+        return pressure_grade in valid_grades and has_trade_plan
+    if bucket == "highlighted":
+        return pressure_grade in {"A-", "A", "A+"}
+    if bucket == "priority":
+        return pressure_grade in {"A", "A+"} and has_trade_plan
+    if bucket == "actionable":
+        return has_trade_plan and execution_grade in actionable_grades and action not in wait_actions
+    return True
 
 
 def _json_or_none(obj: Any) -> str | None:

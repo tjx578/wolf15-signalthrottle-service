@@ -36,7 +36,27 @@ class FakeSignalRepository:
 
     async def get_latest_signals(self, limit: int = 50, bucket: str = "watchlist") -> list[dict]:
         data = {
-            "priority": [
+            "radar": [
+                {
+                    "id": None,
+                    "trade_plan_id": None,
+                    "block_id": 1,
+                    "symbol": "AUDUSD",
+                    "pressure_grade": "C",
+                    "execution_grade": None,
+                    "chart_phase": None,
+                    "action": None,
+                    "duration_minutes": 4.2,
+                    "event_count": 38,
+                    "market_context_status": "NOT_REQUIRED",
+                    "trade_plan_status": "NOT_REQUIRED",
+                    "dashboard_bucket": "radar_below_threshold",
+                    "owner_alert": "NO",
+                    "display_message": "AUDUSD C pressure is below B+. Visible as radar only, not yet eligible for trade-plan processing.",
+                    "signal_end_wita": "2026-04-27 15:20:03",
+                }
+            ],
+            "ready": [
                 {
                     "id": 2,
                     "trade_plan_id": 2,
@@ -50,13 +70,11 @@ class FakeSignalRepository:
                     "invalidation": "143.250",
                     "market_context_status": "READY",
                     "trade_plan_status": "READY",
-                    "dashboard_bucket": "priority_tradeplan",
+                    "dashboard_bucket": "trade_plan_ready",
                     "owner_alert": "YES",
                     "display_message": "USDJPY A pressure with clean continuation structure. Priority trade plan ready.",
                     "signal_end_wita": "2026-04-27 15:35:03",
-                }
-            ],
-            "actionable": [
+                },
                 {
                     "id": 8,
                     "trade_plan_id": 8,
@@ -70,7 +88,7 @@ class FakeSignalRepository:
                     "invalidation": "1.0695",
                     "market_context_status": "READY",
                     "trade_plan_status": "READY",
-                    "dashboard_bucket": "highlighted_tradeplan",
+                    "dashboard_bucket": "trade_plan_ready",
                     "owner_alert": "OPTIONAL",
                     "display_message": "EURUSD A- pressure with structure confirmation. Highlighted trade plan ready.",
                     "signal_end_wita": "2026-04-27 15:32:03",
@@ -78,19 +96,19 @@ class FakeSignalRepository:
             ],
             "watchlist": [
                 {
-                    "id": 9,
-                    "trade_plan_id": 9,
+                    "id": None,
+                    "trade_plan_id": None,
                     "block_id": 9,
                     "symbol": "GBPUSD",
                     "pressure_grade": "B+",
-                    "execution_grade": "B+",
-                    "chart_phase": "PULLBACK_TO_SUPPORT",
-                    "action": "WAIT_SUPPORT_REACTION_OR_RECLAIM",
-                    "market_context_status": "READY",
-                    "trade_plan_status": "READY",
-                    "dashboard_bucket": "watchlist_tradeplan",
-                    "owner_alert": "OPTIONAL",
-                    "display_message": "GBPUSD B+ pressure with valid market structure. Trade plan shown as watchlist setup.",
+                    "execution_grade": None,
+                    "chart_phase": None,
+                    "action": None,
+                    "market_context_status": "PENDING_OR_FAILED",
+                    "trade_plan_status": "TRADE_PLAN_REQUIRED",
+                    "dashboard_bucket": "watchlist_trade_plan_pending",
+                    "owner_alert": "PENDING",
+                    "display_message": "GBPUSD B+ pressure is valid. Trade plan is required and still pending market-context enrichment.",
                     "signal_end_wita": "2026-04-27 15:30:03",
                 }
             ],
@@ -168,16 +186,18 @@ def test_dashboard_watchlist_renders_pending_pressure_without_trade_plan(monkeyp
     response = client.get("/")
 
     assert response.status_code == 200
-    assert "Priority Trade Plans" in response.text
-    assert "Actionable Trade Plans" in response.text
+    assert "Radar / Below Threshold" in response.text
+    assert "Watchlist / Trade Plan Pending" in response.text
+    assert "Trade Plan Ready" in response.text
     assert "GBPUSD" in response.text
-    assert "watchlist_tradeplan" in response.text
-    assert "OPTIONAL" in response.text
-    assert "WAIT_SUPPORT_REACTION_OR_RECLAIM" in response.text
-    assert "GBPUSD B+ pressure with valid market structure. Trade plan shown as watchlist setup." in response.text
-    assert "/signal-detail/9" in response.text
-    assert "priority_tradeplan" in response.text
-    assert "highlighted_tradeplan" in response.text
+    assert "watchlist_trade_plan_pending" in response.text
+    assert "PENDING" in response.text
+    assert "TRADE_PLAN_REQUIRED" in response.text
+    assert "GBPUSD B+ pressure is valid. Trade plan is required and still pending market-context enrichment." in response.text
+    assert "AUDUSD" in response.text
+    assert "radar_below_threshold" in response.text
+    assert "/signal-detail/2" in response.text
+    assert "trade_plan_ready" in response.text
     assert "YES" in response.text
 
 
@@ -210,5 +230,5 @@ def test_dashboard_keeps_signals_when_outcome_queries_fail(monkeypatch) -> None:
 
     assert response.status_code == 200
     assert "GBPUSD" in response.text
-    assert "watchlist_tradeplan" in response.text
+    assert "watchlist_trade_plan_pending" in response.text
     assert "No outcome data yet" in response.text

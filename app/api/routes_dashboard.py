@@ -29,20 +29,20 @@ async def dashboard_home(request: Request):
         [],
         "active_blocks",
     )
-    priority_trade_plans = await _load_section(
-        lambda: repo.get_latest_signals(limit=12, bucket="priority"),
+    radar_signals = await _load_section(
+        lambda: repo.get_latest_signals(limit=12, bucket="radar"),
         [],
-        "priority_trade_plans",
-    )
-    actionable_trade_plans = await _load_section(
-        lambda: repo.get_latest_signals(limit=12, bucket="actionable"),
-        [],
-        "actionable_trade_plans",
+        "radar_signals",
     )
     watchlist_signals = await _load_section(
         lambda: repo.get_latest_signals(limit=12, bucket="watchlist"),
         [],
         "watchlist_signals",
+    )
+    ready_trade_plans = await _load_section(
+        lambda: repo.get_latest_signals(limit=12, bucket="ready"),
+        [],
+        "ready_trade_plans",
     )
     stats = await _load_section(
         lambda: repo.get_dashboard_stats(),
@@ -87,9 +87,9 @@ async def dashboard_home(request: Request):
         {
             "request": request,
             "active_blocks": active_blocks,
-            "priority_trade_plans": priority_trade_plans,
-            "actionable_trade_plans": actionable_trade_plans,
+            "radar_signals": radar_signals,
             "watchlist_signals": watchlist_signals,
+            "ready_trade_plans": ready_trade_plans,
             "stats": stats,
             "outcome_summary": outcome_summary,
             "outcomes_by_phase": outcomes_by_phase,
