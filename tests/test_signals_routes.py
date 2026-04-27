@@ -151,6 +151,12 @@ class FakeSignalRepository:
                     "action": "BUY_ON_RETEST_OR_RECLAIM_HOLD",
                     "h4_structure": "BULLISH_CONTINUATION",
                     "h4_context_type": "CONTINUATION_TREND",
+                    "chain_adjusted_grade": "A",
+                    "chain_type": "CONTINUATION_PULSE_AFTER_A_PLUS",
+                    "execution_mode": "INSTANT_EXECUTION_CANDIDATE",
+                    "previous_block_grade": "A+",
+                    "previous_block_end_wita": "2026-04-23 13:01:27",
+                    "gap_from_previous_minutes": 4.82,
                     "trade_plan_status": "READY",
                     "market_context_status": "READY",
                     "dashboard_bucket": "trade_plan_ready",
@@ -232,6 +238,12 @@ class FakeSignalRepository:
                     "action": "BUY_ON_RETEST_OR_RECLAIM_HOLD",
                     "h4_structure": "BULLISH_CONTINUATION",
                     "h4_context_type": "CONTINUATION_TREND",
+                    "chain_adjusted_grade": "A",
+                    "chain_type": "CONTINUATION_PULSE_AFTER_A_PLUS",
+                    "execution_mode": "INSTANT_EXECUTION_CANDIDATE",
+                    "previous_block_grade": "A+",
+                    "previous_block_end_wita": "2026-04-23 13:01:27",
+                    "gap_from_previous_minutes": 4.82,
                     "trade_plan_status": "READY",
                     "market_context_status": "READY",
                     "dashboard_bucket": "trade_plan_ready",
@@ -248,6 +260,12 @@ class FakeSignalRepository:
                     "action": "BUY_ON_RETEST_OR_RECLAIM_HOLD",
                     "h4_structure": "BULLISH_CONTINUATION",
                     "h4_context_type": "CONTINUATION_TREND",
+                    "chain_adjusted_grade": "A",
+                    "chain_type": "CONTINUATION_PULSE_AFTER_A_PLUS",
+                    "execution_mode": "INSTANT_EXECUTION_CANDIDATE",
+                    "previous_block_grade": "A+",
+                    "previous_block_end_wita": "2026-04-23 13:01:27",
+                    "gap_from_previous_minutes": 4.82,
                     "trade_plan_status": "READY",
                     "market_context_status": "READY",
                     "dashboard_bucket": "trade_plan_ready",
@@ -266,7 +284,19 @@ class FakeSignalRepository:
             "execution_grade": "A",
             "action": "BUY_ON_RETEST_OR_RECLAIM_HOLD",
             "reason_code": "PIVOT_RECLAIM_VALID",
+            "chain_adjusted_grade": None,
+            "chain_type": None,
+            "execution_mode": None,
             "payload": {
+                "chain_context": {
+                    "standalone_grade": "B+",
+                    "chain_adjusted_grade": "A",
+                    "chain_type": "CONTINUATION_PULSE_AFTER_A_PLUS",
+                    "execution_mode": "INSTANT_EXECUTION_CANDIDATE",
+                    "previous_block_grade": "A+",
+                    "previous_block_end_wita": "2026-04-23 13:01:27",
+                    "gap_from_previous_minutes": 4.82,
+                },
                 "snapshot": {
                     "h4_structure": "BULLISH_CONTINUATION",
                     "h4_context_type": "CONTINUATION_TREND",
@@ -294,6 +324,9 @@ def test_latest_signals_supports_bucket_filter(monkeypatch) -> None:
     assert payload["signals"][0]["trade_plan_status"] == "READY"
     assert payload["signals"][0]["h4_structure"] == "BULLISH_CONTINUATION"
     assert payload["signals"][0]["h4_context_type"] == "CONTINUATION_TREND"
+    assert payload["signals"][0]["chain_adjusted_grade"] == "A"
+    assert payload["signals"][0]["chain_type"] == "CONTINUATION_PULSE_AFTER_A_PLUS"
+    assert payload["signals"][0]["execution_mode"] == "INSTANT_EXECUTION_CANDIDATE"
 
 
 def test_latest_signals_invalid_bucket_falls_back_to_all(monkeypatch) -> None:
@@ -432,6 +465,10 @@ def test_signal_detail_exposes_h4_contract_fields(monkeypatch) -> None:
     payload = response.json()
     assert payload["h4_structure"] == "BULLISH_CONTINUATION"
     assert payload["h4_context_type"] == "CONTINUATION_TREND"
+    assert payload["chain_adjusted_grade"] == "A"
+    assert payload["chain_type"] == "CONTINUATION_PULSE_AFTER_A_PLUS"
+    assert payload["execution_mode"] == "INSTANT_EXECUTION_CANDIDATE"
+    assert payload["gap_from_previous_minutes"] == 4.82
 
 
 def test_signal_history_returns_raw_block_history(monkeypatch) -> None:

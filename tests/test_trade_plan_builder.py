@@ -312,3 +312,51 @@ def test_build_plan_chained_continuation_actionable_becomes_instant_candidate() 
     assert result["execution_grade"] == "A"
     assert result["signal_bucket"] == "ready"
     assert result["owner_alert"] is True
+
+
+def test_build_plan_nzdchf_business_case_continuation_pulse_after_a_plus() -> None:
+    previous_block = {
+        "symbol": "NZDCHF",
+        "pressure_grade": "A+",
+        "start_wita": "2026-04-23 12:36:16",
+        "end_wita": "2026-04-23 13:01:27",
+        "duration_minutes": 25.01,
+        "event_count": 225,
+        "density_per_minute": 8.99,
+        "max_gap_seconds": 23.48,
+    }
+    block = {
+        "symbol": "NZDCHF",
+        "pressure_grade": "B+",
+        "start_utc": "2026-04-23T05:06:16Z",
+        "end_utc": "2026-04-23T05:15:43Z",
+        "start_wita": "2026-04-23 13:06:16",
+        "end_wita": "2026-04-23 13:15:43",
+        "duration_minutes": 9.44,
+        "event_count": 89,
+        "density_per_minute": 9.43,
+        "max_gap_seconds": 24.27,
+        "avg_gap_seconds": 8.1,
+        "block_relation": "CHAINED_CONTINUATION",
+        "previous_block_grade": previous_block["pressure_grade"],
+        "previous_block_end_wita": previous_block["end_wita"],
+        "gap_from_previous_minutes": 4.82,
+    }
+    snapshot = {
+        "chart_bias": "SUPPORT_TEST",
+        "chart_phase": "SUPPORT_DECISION_ZONE",
+        "action": "WAIT_BREAKDOWN_OR_RECLAIM",
+        "reason_code": "SUPPORT_DECISION_PENDING",
+    }
+
+    result = build_trade_plan(block, snapshot)
+
+    assert result["standalone_grade"] == "B+"
+    assert result["chain_adjusted_grade"] == "A"
+    assert result["chain_type"] == "CONTINUATION_PULSE_AFTER_A_PLUS"
+    assert result["pressure_status"] == "CHAINED_PRIORITY_PRESSURE"
+    assert result["execution_mode"] == "INSTANT_IF_CHART_TRIGGER_ACTIVE"
+    assert result["previous_block_grade"] == "A+"
+    assert result["previous_block_end_wita"] == "2026-04-23 13:01:27"
+    assert result["gap_from_previous_minutes"] == 4.82
+    assert "Standalone B+, chain-adjusted A" in result["message"]

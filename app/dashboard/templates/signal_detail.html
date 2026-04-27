@@ -46,10 +46,42 @@
       <strong>{{ signal.density_state or 'UNKNOWN' }}</strong>
     </div>
     <div class="detail-item">
+      <span class="label">Chain Adjusted Grade</span>
+      <strong>{{ signal.chain_adjusted_grade or signal.standalone_grade or '-' }}</strong>
+    </div>
+    <div class="detail-item">
+      <span class="label">Chain Type</span>
+      <strong>{{ signal.chain_type or '-' }}</strong>
+    </div>
+    <div class="detail-item">
+      <span class="label">Execution Mode</span>
+      <strong>{{ signal.execution_mode or '-' }}</strong>
+    </div>
+    <div class="detail-item">
       <span class="label">Max Gap</span>
       <strong>{{ signal.max_gap_seconds or '-' }}s</strong>
     </div>
   </div>
+
+  {% if signal.previous_block_grade or signal.previous_block_end_wita or signal.gap_from_previous_minutes %}
+  <section class="panel">
+    <h3>Chain Context</h3>
+    <div class="detail-grid">
+      <div class="detail-item">
+        <span class="label">Previous Grade</span>
+        <strong>{{ signal.previous_block_grade or '-' }}</strong>
+      </div>
+      <div class="detail-item">
+        <span class="label">Previous End WITA</span>
+        <strong>{{ signal.previous_block_end_wita or '-' }}</strong>
+      </div>
+      <div class="detail-item">
+        <span class="label">Gap From Previous</span>
+        <strong>{{ signal.gap_from_previous_minutes if signal.gap_from_previous_minutes is not none else '-' }} min</strong>
+      </div>
+    </div>
+  </section>
+  {% endif %}
 
   {% if signal.grade_note %}
   <section class="panel">

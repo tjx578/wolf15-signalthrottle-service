@@ -76,6 +76,9 @@ class FakeSignalRepository:
                     "invalidation": "143.250",
                     "density_per_minute": 11.25,
                     "density_state": "VERY_HIGH_DENSITY",
+                    "chain_adjusted_grade": "A",
+                    "chain_type": "CONTINUATION_PULSE_AFTER_A_PLUS",
+                    "execution_mode": "INSTANT_EXECUTION_CANDIDATE",
                     "h4_structure": "BULLISH_CONTINUATION",
                     "market_context_status": "READY",
                     "trade_plan_status": "READY",
@@ -149,9 +152,12 @@ class FakeSignalRepository:
             "max_gap_seconds": 14.58,
             "message": "GBPUSD B+ pressure with valid market structure. Trade plan shown as watchlist setup.",
             "grade_note": "B+ strong density / A- candidate, but duration below 10m",
+            "chain_adjusted_grade": None,
+            "chain_type": None,
+            "execution_mode": None,
             "reason_code": "H4_BEARISH_MASTER_STRUCTURE",
             "h4_structure": "BEARISH_CONTINUATION",
-            "payload": {"reason": "support reaction setup", "snapshot": {"h4_structure": "BEARISH_CONTINUATION"}, "scenario_set": {"primary_scenario": {"action": "WAIT_SUPPORT_REACTION_OR_RECLAIM"}}},
+            "payload": {"reason": "support reaction setup", "chain_context": {"standalone_grade": "B+", "chain_adjusted_grade": "A", "chain_type": "CONTINUATION_PULSE_AFTER_A_PLUS", "execution_mode": "INSTANT_IF_CHART_TRIGGER_ACTIVE", "previous_block_grade": "A+", "previous_block_end_wita": "2026-04-23 13:01:27", "gap_from_previous_minutes": 4.82}, "snapshot": {"h4_structure": "BEARISH_CONTINUATION"}, "scenario_set": {"primary_scenario": {"action": "WAIT_SUPPORT_REACTION_OR_RECLAIM"}}},
         }
 
     async def get_signal_series_detail(self, symbol: str) -> dict | None:
@@ -350,6 +356,9 @@ def test_dashboard_watchlist_renders_pending_pressure_without_trade_plan(monkeyp
     assert "radar_below_threshold" in response.text
     assert "Density State" in response.text
     assert "HIGH_DENSITY" in response.text
+    assert "Chain Grade" in response.text
+    assert "Execution Mode" in response.text
+    assert "INSTANT_EXECUTION_CANDIDATE" in response.text
     assert "/series-detail/GBPUSD" in response.text
     assert "/series-detail/USDJPY" in response.text
     assert "trade_plan_ready" in response.text
@@ -382,6 +391,9 @@ def test_signal_detail_shows_rationale_summary(monkeypatch) -> None:
     assert "Density State" in response.text
     assert "VERY_HIGH_DENSITY" in response.text
     assert "B+ strong density / A- candidate, but duration below 10m" in response.text
+    assert "Chain Adjusted Grade" in response.text
+    assert "Chain Type" in response.text
+    assert "INSTANT_IF_CHART_TRIGGER_ACTIVE" in response.text
     assert "H4 Promotion Gate" in response.text
     assert "BEARISH_CONTINUATION" in response.text
     assert "/series-detail/GBPUSD" in response.text

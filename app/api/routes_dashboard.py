@@ -13,6 +13,25 @@ router = APIRouter()
 templates = Jinja2Templates(directory="app/dashboard/templates")
 
 
+def _dashboard_signal_contract(row: dict | None) -> dict | None:
+    if row is None:
+        return None
+    payload = row.get("payload") or {}
+    snapshot = payload.get("snapshot") or {}
+    chain_context = payload.get("chain_context") or {}
+    public_row = dict(row)
+    public_row["h4_structure"] = row.get("h4_structure") or snapshot.get("h4_structure")
+    public_row["h4_context_type"] = row.get("h4_context_type") or snapshot.get("h4_context_type")
+    public_row["standalone_grade"] = row.get("standalone_grade") or chain_context.get("standalone_grade")
+    public_row["chain_adjusted_grade"] = row.get("chain_adjusted_grade") or chain_context.get("chain_adjusted_grade")
+    public_row["chain_type"] = row.get("chain_type") or chain_context.get("chain_type")
+    public_row["execution_mode"] = row.get("execution_mode") or chain_context.get("execution_mode")
+    public_row["previous_block_grade"] = row.get("previous_block_grade") or chain_context.get("previous_block_grade")
+    public_row["previous_block_end_wita"] = row.get("previous_block_end_wita") or chain_context.get("previous_block_end_wita")
+    public_row["gap_from_previous_minutes"] = row.get("gap_from_previous_minutes") or chain_context.get("gap_from_previous_minutes")
+    return public_row
+
+
 async def _load_section(loader, fallback, section_name: str):
     try:
         return await loader()
@@ -94,6 +113,10 @@ async def dashboard_home(request: Request):
         "latest_outcomes",
     )
 
+    radar_signals = [_dashboard_signal_contract(row) for row in radar_signals]
+    watchlist_signals = [_dashboard_signal_contract(row) for row in watchlist_signals]
+    ready_trade_plans = [_dashboard_signal_contract(row) for row in ready_trade_plans]
+
     return templates.TemplateResponse(
         "index.html",
         {
@@ -122,7 +145,7 @@ async def signal_detail_page(request: Request, signal_id: int):
         "signal_detail.html",
         {
             "request": request,
-            "signal": signal,
+            "signal": _dashboard_signal_contract(signal),
         },
     )
 
