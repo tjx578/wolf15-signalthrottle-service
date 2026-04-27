@@ -22,6 +22,10 @@
       <strong>{{ signal.action }}</strong>
     </div>
     <div class="detail-item">
+      <span class="label">Reason Code</span>
+      <strong>{{ signal.reason_code or '-' }}</strong>
+    </div>
+    <div class="detail-item">
       <span class="label">Duration</span>
       <strong>{{ signal.duration_minutes }} min</strong>
     </div>

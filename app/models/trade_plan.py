@@ -36,6 +36,7 @@ class TradePlan(BaseModel):
     price_at_signal_end: str | None = None
     chart_bias: str | None = None
     chart_phase: str | None = None
+    reason_code: str | None = None
 
     action: str
     entry_zone: str | None = None

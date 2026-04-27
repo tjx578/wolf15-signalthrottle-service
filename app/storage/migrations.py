@@ -35,6 +35,7 @@ async def run_migrations() -> list[dict]:
         _migration_005_ensure_pressure_series_table,
         _migration_006_ensure_pressure_blocks_block_hash,
         _migration_007_ensure_block_pending_reason_columns,
+        _migration_008_ensure_trade_plans_reason_code,
     ]
     results: list[dict] = []
     for m in migrations:
@@ -415,3 +416,8 @@ async def _migration_007_ensure_block_pending_reason_columns() -> None:
     for column_name, type_sql in columns:
         await _ensure_column("pressure_blocks", column_name, type_sql)
     logger.info("migration_007: pressure_blocks pending-reason columns ensured")
+
+
+async def _migration_008_ensure_trade_plans_reason_code() -> None:
+    await _ensure_column("trade_plans", "reason_code", "TEXT")
+    logger.info("migration_008: trade_plans.reason_code ensured")

@@ -35,6 +35,8 @@ def test_pivot_reclaim():
     })
     assert result["chart_phase"] == "PIVOT_RECLAIM_CONTINUATION"
     assert result["action"] == "BUY_ON_RETEST_OR_RECLAIM_HOLD"
+    assert result["reason_code"] == "PIVOT_RECLAIM_VALID"
+    assert result["primary_scenario"]["action"] == "BUY_ON_RETEST_OR_RECLAIM_HOLD"
 
 
 def test_upper_range_exhaustion():
@@ -58,6 +60,7 @@ def test_upper_range_exhaustion():
         "support_zone": "143.500-143.660",
     })
     assert result["chart_phase"] == "UPPER_RANGE_EXHAUSTION_RISK"
+    assert result["reason_code"] == "UPPER_RESISTANCE_REJECTION"
 
 
 def test_bearish_pullback():
@@ -72,6 +75,7 @@ def test_bearish_pullback():
         "support_zone": "141.500-141.660",
     })
     assert result["chart_phase"] == "BEARISH_PULLBACK_CONTINUATION"
+    assert result["reason_code"] == "LOWER_HIGH_REJECTION"
 
 
 def test_support_zone():
@@ -84,7 +88,8 @@ def test_support_zone():
         "near_support": True,
         "support_zone": "140.920-141.080",
     })
-    assert result["chart_phase"] == "SUPPORT_DECISION_ZONE"
+    assert result["chart_phase"] == "SUPPORT_REACTION_PENDING"
+    assert result["reason_code"] == "SUPPORT_DECISION_PENDING"
 
 
 def test_unclassified():
@@ -97,3 +102,21 @@ def test_unclassified():
     })
     assert result["chart_phase"] == "RANGE_MID_NO_EDGE"
     assert result["action"] == "NO_TRADE_WAIT_CONTEXT"
+    assert result["reason_code"] == "RANGE_MID_NO_EDGE"
+
+
+def test_upper_range_distribution_without_rejection() -> None:
+    result = classify_phase({
+        "symbol": "USDJPY",
+        "price": 144.05,
+        "d1": _candles([141 + (index * 0.08) for index in range(60)]),
+        "h1": _candles([143.2 + (index * 0.02) for index in range(60)]),
+        "m15": _candles([143.90, 144.00, 144.05, 144.02, 144.04]),
+        "near_resistance": True,
+        "resistance": 144.1,
+        "resistance_zone": "144.020-144.180",
+        "support_zone": "143.500-143.660",
+    })
+    assert result["chart_phase"] == "UPPER_RANGE_DISTRIBUTION"
+    assert result["action"] == "WAIT_BREAKOUT_OR_REJECTION"
+    assert result["reason_code"] == "UPPER_RANGE_DISTRIBUTION"

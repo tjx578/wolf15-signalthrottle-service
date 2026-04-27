@@ -25,6 +25,8 @@ def test_build_plan_a_grade():
         "chart_bias": "BULLISH_MACRO_RANGE",
         "chart_phase": "PIVOT_RECLAIM_CONTINUATION",
         "action": "BUY_ON_RETEST_OR_RECLAIM_HOLD",
+        "reason_code": "PIVOT_RECLAIM_VALID",
+        "primary_scenario": {"action": "BUY_ON_RETEST_OR_RECLAIM_HOLD"},
         "tp1": "143.700",
     }
 
@@ -38,6 +40,8 @@ def test_build_plan_a_grade():
     # Owner alert remains restricted to A/A+ + actionable execution.
     assert result["owner_alert"] is True
     assert result["execution_side"] == "BUY_CONTINUATION"
+    assert result["reason_code"] == "PIVOT_RECLAIM_VALID"
+    assert result["payload"]["scenario_set"]["primary_scenario"]["action"] == "BUY_ON_RETEST_OR_RECLAIM_HOLD"
     assert result["payload"]["block"]["symbol"] == "USDJPY"
     assert "USDJPY" in result["message"]
 
@@ -56,6 +60,7 @@ def test_build_plan_c_grade():
         "chart_bias": "UNCLASSIFIED",
         "chart_phase": "RANGE_MID_NO_EDGE",
         "action": "NO_TRADE_WAIT_CONTEXT",
+        "reason_code": "RANGE_MID_NO_EDGE",
     }
 
     result = build_trade_plan(block, snapshot)
@@ -63,6 +68,7 @@ def test_build_plan_c_grade():
     assert result["execution_grade"] == "C"
     assert result["signal_bucket"] == "watchlist"
     assert result["execution_side"] == "NO_TRADE"
+    assert result["reason_code"] == "RANGE_MID_NO_EDGE"
 
 
 def test_build_plan_b_plus_stays_watchlist() -> None:
@@ -79,8 +85,9 @@ def test_build_plan_b_plus_stays_watchlist() -> None:
     }
     snapshot = {
         "chart_bias": "SUPPORT_TEST",
-        "chart_phase": "SUPPORT_DECISION_ZONE",
-        "action": "WAIT_BREAKDOWN_OR_RECLAIM",
+        "chart_phase": "SUPPORT_REACTION_PENDING",
+        "action": "WAIT_SUPPORT_REACTION_OR_RECLAIM",
+        "reason_code": "SUPPORT_DECISION_PENDING",
         "support_zone": "1.27100-1.27200",
     }
 
@@ -90,7 +97,8 @@ def test_build_plan_b_plus_stays_watchlist() -> None:
     # WAIT-style action keeps signal in watchlist regardless of pressure grade.
     assert result["signal_bucket"] == "watchlist"
     assert result["owner_alert"] is False
-    assert result["execution_side"] == "WAIT_BREAKDOWN_OR_RECLAIM"
+    assert result["execution_side"] == "WAIT_SUPPORT_REACTION_OR_RECLAIM"
+    assert result["reason_code"] == "SUPPORT_DECISION_PENDING"
 
 
 def test_build_plan_b_plus_strong_phase_gets_trade_plan_ready_grade() -> None:
@@ -112,6 +120,7 @@ def test_build_plan_b_plus_strong_phase_gets_trade_plan_ready_grade() -> None:
         "chart_bias": "BULLISH_RECOVERY",
         "chart_phase": "PULLBACK_TO_SUPPORT",
         "action": "WAIT_SUPPORT_REACTION_OR_RECLAIM",
+        "reason_code": "SUPPORT_DECISION_PENDING",
     }
 
     result = build_trade_plan(block, snapshot)
@@ -125,6 +134,7 @@ def test_build_plan_b_plus_strong_phase_gets_trade_plan_ready_grade() -> None:
     assert result["action"] == "WAIT_SUPPORT_REACTION_OR_RECLAIM"
     assert result["entry_zone"] == "derived_from_structure"
     assert result["invalidation"] == "derived_from_structure"
+    assert result["reason_code"] == "SUPPORT_DECISION_PENDING"
 
 
 def test_build_plan_b_plus_range_mid_stays_wait_state() -> None:
@@ -141,6 +151,7 @@ def test_build_plan_b_plus_range_mid_stays_wait_state() -> None:
         "chart_bias": "RANGE",
         "chart_phase": "RANGE_MID_NO_EDGE",
         "action": "NO_TRADE",
+        "reason_code": "RANGE_MID_NO_EDGE",
     }
 
     result = build_trade_plan(block, snapshot)
@@ -148,6 +159,7 @@ def test_build_plan_b_plus_range_mid_stays_wait_state() -> None:
     assert result["execution_grade"] == "C"
     assert result["signal_bucket"] == "watchlist"
     assert result["execution_side"] == "NO_TRADE"
+    assert result["reason_code"] == "RANGE_MID_NO_EDGE"
 
 
 def test_build_plan_b_plus_with_actionable_phase_promoted_to_ready() -> None:
@@ -170,6 +182,7 @@ def test_build_plan_b_plus_with_actionable_phase_promoted_to_ready() -> None:
         "chart_bias": "BULLISH_MACRO_RANGE",
         "chart_phase": "PIVOT_RECLAIM_CONTINUATION",
         "action": "BUY_ON_RETEST_OR_RECLAIM_HOLD",
+        "reason_code": "PIVOT_RECLAIM_VALID",
     }
 
     result = build_trade_plan(block, snapshot)
@@ -177,3 +190,4 @@ def test_build_plan_b_plus_with_actionable_phase_promoted_to_ready() -> None:
     assert result["pressure_grade"] == "B+"
     assert result["signal_bucket"] == "ready"
     assert result["owner_alert"] is False
+    assert result["reason_code"] == "PIVOT_RECLAIM_VALID"

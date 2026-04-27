@@ -153,6 +153,7 @@ CREATE TABLE IF NOT EXISTS signalthrottle.trade_plans (
     execution_grade TEXT NOT NULL,
     execution_side TEXT,
     chart_phase TEXT,
+    reason_code TEXT,
     action TEXT NOT NULL,
 
     entry_zone TEXT,

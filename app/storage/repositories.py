@@ -775,10 +775,10 @@ class SignalRepository:
                 INSERT INTO trade_plans
                     (block_id, symbol, pressure_status, signal_bucket,
                      pressure_grade, execution_grade,
-                     execution_side, chart_phase, action, entry_zone, breakout_level,
+                     execution_side, chart_phase, reason_code, action, entry_zone, breakout_level,
                      reclaim_level, invalidation, tp1, tp2, tp3,
                      message, payload)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
+                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
                 RETURNING id
                 """,
                 (
@@ -790,6 +790,7 @@ class SignalRepository:
                     plan["execution_grade"],
                     plan.get("execution_side"),
                     plan.get("chart_phase"),
+                    plan.get("reason_code"),
                     plan["action"],
                     plan.get("entry_zone"),
                     plan.get("breakout_level"),
@@ -906,6 +907,15 @@ class SignalRepository:
                     tp.execution_grade,
                     tp.execution_side,
                     COALESCE(tp.chart_phase, ms.chart_phase) AS chart_phase,
+                    COALESCE(
+                        tp.reason_code,
+                        pb.pending_reason,
+                        CASE
+                            WHEN pb.pressure_grade NOT IN ('B+', 'A-', 'A', 'A+') THEN 'PRESSURE_BELOW_BPLUS'
+                            WHEN tp.id IS NULL THEN 'TRADE_PLAN_REQUIRED'
+                            ELSE 'UNCLASSIFIED'
+                        END
+                    ) AS reason_code,
                     tp.action,
                     tp.entry_zone,
                     tp.invalidation,

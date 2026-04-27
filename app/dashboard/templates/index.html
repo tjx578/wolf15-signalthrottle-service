@@ -65,6 +65,7 @@
         <tr>
           <th>Symbol</th>
           <th>Pressure</th>
+          <th>Reason</th>
           <th>Duration (m)</th>
           <th>Events</th>
           <th>Rationale</th>
@@ -77,6 +78,7 @@
         <tr>
           <td class="symbol"><a href="/series-detail/{{ s.symbol }}">{{ s.symbol }}</a></td>
           <td><span class="badge">{{ s.pressure_grade }}</span></td>
+          <td>{{ s.reason_code or '-' }}</td>
           <td>{{ s.duration_minutes }}</td>
           <td>{{ s.event_count }}</td>
           <td>{{ s.display_message or s.message or '-' }}</td>
@@ -104,6 +106,7 @@
           <th>Exec</th>
           <th>Phase</th>
           <th>Action</th>
+          <th>Reason</th>
           <th>Rationale</th>
           <th>Plan Status</th>
           <th>Bucket</th>
@@ -121,6 +124,7 @@
           <td><span class="badge">{{ s.execution_grade or 'PENDING' }}</span></td>
           <td>{{ s.chart_phase or s.market_context_status or '-' }}</td>
           <td>{{ s.action or s.trade_plan_status or 'TRADE_PLAN_REQUIRED' }}</td>
+          <td>{{ s.reason_code or '-' }}</td>
           <td>{{ s.display_message or s.message or '-' }}</td>
           <td>{{ s.trade_plan_status or '-' }}</td>
           <td>{{ s.dashboard_bucket or '-' }}</td>
@@ -148,6 +152,7 @@
           <th>Exec</th>
           <th>Phase</th>
           <th>Action</th>
+          <th>Reason</th>
           <th>Rationale</th>
           <th>Plan Status</th>
           <th>Bucket</th>
@@ -165,6 +170,7 @@
           <td><span class="badge">{{ s.execution_grade or 'PENDING' }}</span></td>
           <td>{{ s.chart_phase or s.market_context_status or '-' }}</td>
           <td>{{ s.action or s.trade_plan_status or 'TRADE_PLAN_PENDING' }}</td>
+          <td>{{ s.reason_code or '-' }}</td>
           <td>{{ s.display_message or s.message or '-' }}</td>
           <td>{{ s.trade_plan_status or '-' }}</td>
           <td>{{ s.dashboard_bucket or '-' }}</td>

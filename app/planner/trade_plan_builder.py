@@ -10,11 +10,15 @@ STRONG_PHASES = {
     "BREAKOUT_RETEST",
     "BEARISH_PULLBACK_CONTINUATION",
     "UPPER_RANGE_EXHAUSTION_RISK",
+    "FAILED_RECLAIM",
+    "BREAKDOWN_CONFIRMATION",
 }
 
 DECISION_PHASES = {
     "SUPPORT_DECISION_ZONE",
+    "SUPPORT_REACTION_PENDING",
     "RESISTANCE_DECISION_ZONE",
+    "UPPER_RANGE_DISTRIBUTION",
 }
 
 WAIT_ACTIONS = {
@@ -61,8 +65,12 @@ def map_execution_side(chart_phase: str) -> str:
         "PULLBACK_TO_SUPPORT": "WAIT_SUPPORT_REACTION_OR_RECLAIM",
         "BREAKOUT_RETEST": "BUY_BREAKOUT_RETEST",
         "UPPER_RANGE_EXHAUSTION_RISK": "PROTECT_LONG_OR_SELL_REJECTION",
+        "UPPER_RANGE_DISTRIBUTION": "WAIT_BREAKOUT_OR_REJECTION",
         "BEARISH_PULLBACK_CONTINUATION": "SELL_ON_RALLY_OR_CONTINUATION",
+        "FAILED_RECLAIM": "SELL_FAILED_RECLAIM",
+        "BREAKDOWN_CONFIRMATION": "SELL_BREAKDOWN_RETEST",
         "SUPPORT_DECISION_ZONE": "WAIT_BREAKDOWN_OR_RECLAIM",
+        "SUPPORT_REACTION_PENDING": "WAIT_SUPPORT_REACTION_OR_RECLAIM",
         "RESISTANCE_DECISION_ZONE": "WAIT_BREAKOUT_OR_REJECTION",
         "RANGE_MID_NO_EDGE": "NO_TRADE",
     }
@@ -94,12 +102,14 @@ def build_message(
     phase = snapshot["chart_phase"]
     action = snapshot["action"]
     zone = snapshot.get("entry_zone") or "n/a"
+    reason_code = snapshot.get("reason_code") or "UNCLASSIFIED"
 
     return (
         f"{symbol} {pressure_grade} pressure. "
         f"Execution {execution_grade}. "
         f"Phase: {phase}. "
         f"Action: {action}. "
+        f"Reason: {reason_code}. "
         f"Zone: {zone}. "
         f"Side: {execution_side}."
     )
@@ -142,6 +152,13 @@ def build_trade_plan(block: dict[str, Any], snapshot: dict[str, Any]) -> dict[st
         digit_count = 3 if "JPY" in block["symbol"] else 5
         price_text = f"{float(price_at_end):.{digit_count}f}"
 
+    scenario_set = {
+        "primary_scenario": snapshot.get("primary_scenario"),
+        "alternative_scenario": snapshot.get("alternative_scenario"),
+        "no_trade_condition": snapshot.get("no_trade_condition"),
+    }
+    reason_code = snapshot.get("reason_code") or "UNCLASSIFIED"
+
     return {
         "symbol": block["symbol"],
         "signal_type": "SIGNAL_THROTTLE_PRESSURE",
@@ -168,6 +185,7 @@ def build_trade_plan(block: dict[str, Any], snapshot: dict[str, Any]) -> dict[st
         "chart_bias": snapshot["chart_bias"],
         "chart_phase": chart_phase,
         "action": action,
+        "reason_code": reason_code,
         "entry_zone": snapshot.get("entry_zone"),
         "breakout_level": snapshot.get("breakout_level"),
         "reclaim_level": snapshot.get("reclaim_level"),
@@ -183,5 +201,6 @@ def build_trade_plan(block: dict[str, Any], snapshot: dict[str, Any]) -> dict[st
                 for key, value in snapshot.items()
                 if key != "raw_ohlc"
             },
+            "scenario_set": scenario_set,
         },
     }
