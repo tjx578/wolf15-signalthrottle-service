@@ -192,6 +192,7 @@ def test_build_plan_b_plus_with_actionable_phase_promoted_to_ready() -> None:
     assert result["owner_alert"] is False
     assert result["execution_mode"] == "INSTANT_EXECUTION_CANDIDATE"
     assert result["reason_code"] == "PIVOT_RECLAIM_VALID"
+    assert "instant buy continuation candidate" in result["message"]
 
 
 def test_build_plan_range_edge_compression_gets_downgraded_execution_grade() -> None:
@@ -403,3 +404,4 @@ def test_build_plan_nzdchf3_standalone_bearish_pullback_is_instant_sell_candidat
     assert result["owner_alert"] is False
     assert result["price_at_signal_end"] == "0.46174"
     assert result["reason_code"] == "LOWER_HIGH_REJECTION"
+    assert "instant sell continuation candidate" in result["message"]

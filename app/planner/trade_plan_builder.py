@@ -195,11 +195,27 @@ def is_actionable_signal(execution_grade: str, action: str) -> bool:
     return execution_grade in {"B+", "A", "A+"} and not _is_wait_action(action)
 
 
+def _standalone_execution_summary(execution_mode: str | None, execution_side: str) -> str | None:
+    if execution_mode != "INSTANT_EXECUTION_CANDIDATE":
+        return None
+
+    mapping = {
+        "SELL_ON_RALLY_OR_CONTINUATION": "instant sell continuation candidate",
+        "SELL_FAILED_RECLAIM": "instant failed-reclaim sell candidate",
+        "SELL_BREAKDOWN_RETEST": "instant breakdown sell candidate",
+        "BUY_CONTINUATION": "instant buy continuation candidate",
+        "BUY_BREAKOUT_RETEST": "instant breakout buy candidate",
+        "BUY_BREAKOUT_OR_RETEST": "instant breakout buy candidate",
+    }
+    return mapping.get(execution_side, "instant execution candidate")
+
+
 def build_message(
     block: dict[str, Any],
     snapshot: dict[str, Any],
     execution_grade: str,
     execution_side: str,
+    execution_mode: str | None,
     chain_state: dict[str, Any] | None = None,
 ) -> str:
     symbol = block["symbol"]
@@ -221,6 +237,17 @@ def build_message(
             f"{symbol} continuation pulse after {previous_grade} block. "
             f"Standalone {pressure_grade}, chain-adjusted {chain_state['chain_adjusted_grade']}."
             f"{gap_text} {tail}"
+        )
+
+    standalone_summary = _standalone_execution_summary(execution_mode, execution_side)
+    if standalone_summary is not None:
+        return (
+            f"{symbol} standalone {pressure_grade} pressure is an {standalone_summary}. "
+            f"Execution {execution_grade}. "
+            f"Phase: {phase}. "
+            f"Reason: {reason_code}. "
+            f"Action: {action}. "
+            f"Zone: {zone}."
         )
 
     return (
@@ -330,7 +357,7 @@ def build_trade_plan(block: dict[str, Any], snapshot: dict[str, Any]) -> dict[st
         "tp1": snapshot.get("tp1"),
         "tp2": snapshot.get("tp2"),
         "tp3": snapshot.get("tp3"),
-        "message": build_message(block, snapshot, execution_grade, execution_side, chain_state),
+        "message": build_message(block, snapshot, execution_grade, execution_side, execution_mode, chain_state),
         "payload": {
             "block": block,
             "chain_context": {
