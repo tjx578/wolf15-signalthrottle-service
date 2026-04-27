@@ -13,6 +13,7 @@ from typing import Any
 from app.config import settings
 from app.market.finnhub_client import FinnhubClient
 from app.outcomes.mfe_mae_tracker import MFEMAETracker, _coerce_datetime
+from app.storage.repository_protocols import OutcomeWorkerRepository
 from app.storage.repositories import SignalRepository
 
 logger = logging.getLogger(__name__)
@@ -22,7 +23,7 @@ DEFAULT_DUE_SECONDS = 65 * 60
 
 
 class OutcomeWorker:
-    def __init__(self, repo: SignalRepository | None = None) -> None:
+    def __init__(self, repo: OutcomeWorkerRepository | None = None) -> None:
         self.repo = repo or SignalRepository()
 
     async def process_due_outcomes(self, limit: int = 20) -> dict[str, int]:

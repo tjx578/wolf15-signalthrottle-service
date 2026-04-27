@@ -6,6 +6,7 @@ from typing import Any
 from ..config import settings
 from ..market.finnhub_client import FinnhubClient
 from ..market.market_snapshot_builder import MarketSnapshotBuilder
+from ..storage.repository_protocols import MarketContextRepository
 from .trade_plan_builder import build_trade_plan
 from ..storage.repositories import SignalRepository
 
@@ -16,7 +17,7 @@ ELIGIBLE_GRADES = {"B+", "A-", "A", "A+"}
 
 async def enrich_block_with_market_context(
     block: dict[str, Any],
-    repo: SignalRepository | None = None,
+    repo: MarketContextRepository | None = None,
 ) -> dict[str, Any] | None:
     repository = repo or SignalRepository()
     block_id = block.get("id")

@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 from app.config import settings
 from app.planner.market_context import enrich_block_with_market_context
+from app.storage.repository_protocols import FinalizerRepository
 from app.storage.repositories import SignalRepository
 
 logger = logging.getLogger(__name__)
@@ -38,7 +39,7 @@ def determine_finalize_mode(
 
 
 class SignalFinalizer:
-    def __init__(self, repo: SignalRepository | None = None) -> None:
+    def __init__(self, repo: FinalizerRepository | None = None) -> None:
         self.repo = repo or SignalRepository()
 
     async def finalize_due_blocks(self, now_utc: datetime | None = None) -> None:

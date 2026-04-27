@@ -10,7 +10,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from app.market.finnhub_client import FinnhubClient
+from app.market.ohlc_provider_base import OHLCProviderBase
 from app.outcomes.outcome_classifier import classify_outcome
 
 logger = logging.getLogger(__name__)
@@ -105,7 +105,7 @@ def calculate_mfe_mae(
 
 
 class MFEMAETracker:
-    def __init__(self, ohlc_client: FinnhubClient) -> None:
+    def __init__(self, ohlc_client: OHLCProviderBase) -> None:
         self.ohlc_client = ohlc_client
 
     async def evaluate(self, trade_plan: dict[str, Any]) -> dict[str, Any]:

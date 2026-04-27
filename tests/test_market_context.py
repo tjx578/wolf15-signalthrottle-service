@@ -9,11 +9,10 @@ grade.
 from __future__ import annotations
 
 import asyncio
-from typing import Any, cast
+from typing import Any
 
 import app.planner.market_context as market_context_module
 from app.planner.market_context import enrich_block_with_market_context
-from app.storage.repositories import SignalRepository
 
 
 class FakeRepo:
@@ -52,9 +51,7 @@ def test_enrich_records_finnhub_key_missing(monkeypatch) -> None:
     repo = FakeRepo()
     block = {"id": 11, "symbol": "USDJPY", "pressure_grade": "B+"}
 
-    result = asyncio.run(
-        enrich_block_with_market_context(block, repo=cast(SignalRepository, repo))
-    )
+    result = asyncio.run(enrich_block_with_market_context(block, repo=repo))
 
     assert result is None
     assert len(repo.marks) == 1
@@ -73,9 +70,7 @@ def test_enrich_records_disabled(monkeypatch) -> None:
     repo = FakeRepo()
     block = {"id": 22, "symbol": "EURUSD", "pressure_grade": "A"}
 
-    result = asyncio.run(
-        enrich_block_with_market_context(block, repo=cast(SignalRepository, repo))
-    )
+    result = asyncio.run(enrich_block_with_market_context(block, repo=repo))
 
     assert result is None
     assert repo.marks == [
@@ -98,9 +93,7 @@ def test_enrich_marks_ineligible_grade_as_not_requested(monkeypatch) -> None:
     repo = FakeRepo()
     block = {"id": 33, "symbol": "GBPUSD", "pressure_grade": "C"}
 
-    result = asyncio.run(
-        enrich_block_with_market_context(block, repo=cast(SignalRepository, repo))
-    )
+    result = asyncio.run(enrich_block_with_market_context(block, repo=repo))
 
     assert result is None
     assert repo.marks == [
