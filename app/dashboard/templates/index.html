@@ -106,6 +106,8 @@
           <th>Symbol</th>
           <th>Pressure</th>
           <th>Exec</th>
+          <th>Density</th>
+          <th>Density State</th>
           <th>H4</th>
           <th>Phase</th>
           <th>Action</th>
@@ -125,6 +127,8 @@
           </td>
           <td><span class="badge">{{ s.pressure_grade }}</span></td>
           <td><span class="badge">{{ s.execution_grade or 'PENDING' }}</span></td>
+          <td>{{ s.density_per_minute or '-' }}</td>
+          <td>{{ s.density_state or 'UNKNOWN' }}</td>
           <td>{{ s.h4_structure or '-' }}</td>
           <td>{{ s.chart_phase or s.market_context_status or '-' }}</td>
           <td>{{ s.action or s.trade_plan_status or 'TRADE_PLAN_REQUIRED' }}</td>
@@ -154,6 +158,8 @@
           <th>Symbol</th>
           <th>Pressure</th>
           <th>Exec</th>
+          <th>Density</th>
+          <th>Density State</th>
           <th>H4</th>
           <th>Phase</th>
           <th>Action</th>
@@ -173,6 +179,8 @@
           </td>
           <td><span class="badge">{{ s.pressure_grade }}</span></td>
           <td><span class="badge">{{ s.execution_grade or 'PENDING' }}</span></td>
+          <td>{{ s.density_per_minute or '-' }}</td>
+          <td>{{ s.density_state or 'UNKNOWN' }}</td>
           <td>{{ s.h4_structure or '-' }}</td>
           <td>{{ s.chart_phase or s.market_context_status or '-' }}</td>
           <td>{{ s.action or s.trade_plan_status or 'TRADE_PLAN_PENDING' }}</td>

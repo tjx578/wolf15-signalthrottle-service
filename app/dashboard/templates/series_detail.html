@@ -26,6 +26,14 @@
       <strong>{{ detail.series.event_count }}</strong>
     </div>
     <div class="detail-item">
+      <span class="label">Density</span>
+      <strong>{{ detail.series.density_per_minute or '-' }} event/min</strong>
+    </div>
+    <div class="detail-item">
+      <span class="label">Density State</span>
+      <strong>{{ detail.series.density_state or 'UNKNOWN' }}</strong>
+    </div>
+    <div class="detail-item">
       <span class="label">Blocks Merged</span>
       <strong>{{ detail.series.block_count }}</strong>
     </div>
@@ -46,6 +54,13 @@
       <strong>{{ detail.series.max_gap_seconds or '-' }}s</strong>
     </div>
   </div>
+
+  {% if detail.series.grade_note %}
+  <section class="panel">
+    <h3>Grade Note</h3>
+    <p>{{ detail.series.grade_note }}</p>
+  </section>
+  {% endif %}
 
   {% if detail.trade_plan %}
   <section class="panel">
@@ -127,6 +142,8 @@
             <th>End UTC</th>
             <th>Pressure</th>
             <th>Events</th>
+            <th>Density/min</th>
+            <th>Density State</th>
             <th>Duration (m)</th>
             <th>Status</th>
             <th>Trade Plan</th>
@@ -140,6 +157,8 @@
             <td>{{ block.end_utc }}</td>
             <td><span class="badge">{{ block.pressure_grade }}</span></td>
             <td>{{ block.event_count }}</td>
+            <td>{{ block.density_per_minute or '-' }}</td>
+            <td>{{ block.density_state or 'UNKNOWN' }}</td>
             <td>{{ block.duration_minutes }}</td>
             <td>{{ block.pressure_status or block.finalize_mode or '-' }}</td>
             <td>

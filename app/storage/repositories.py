@@ -756,18 +756,21 @@ class SignalRepository:
                 (symbol, series["end_utc"], series["start_utc"]),
             )
             blocks = await cur.fetchall()
-        blocks = sorted(
-            _dedupe_exact_pressure_block_rows(blocks),
-            key=lambda row: (row.get("end_utc"), row.get("id") or 0),
-            reverse=True,
-        )
+        blocks = [
+            _with_density_metadata(row)
+            for row in sorted(
+                _dedupe_exact_pressure_block_rows(blocks),
+                key=lambda row: (row.get("end_utc"), row.get("id") or 0),
+                reverse=True,
+            )
+        ]
 
         trade_plan = None
         if series.get("latest_trade_plan_id"):
             trade_plan = await self.get_trade_plan(series["latest_trade_plan_id"])
 
         return {
-            "series": series,
+            "series": _with_density_metadata(series),
             "latest_snapshot": latest_snapshot,
             "blocks": blocks,
             "trade_plan": trade_plan,
@@ -1060,7 +1063,8 @@ class SignalRepository:
                 """,
                 (plan_id,),
             )
-            return await cur.fetchone()
+            row = await cur.fetchone()
+            return _with_density_metadata(row) if row else None
 
     async def get_trade_plan_for_block(self, block_id: int) -> dict | None:
         async with get_cursor() as cur:
@@ -1553,6 +1557,7 @@ def _select_latest_signal_rows(
     )
 
     filtered = [row for row in collapsed if _matches_signal_bucket(row, bucket)]
+    filtered = [_with_density_metadata(row) for row in filtered]
     if limit is None:
         return filtered
     return filtered[:limit]
@@ -1791,6 +1796,72 @@ def _finalize_pressure_series(series: dict[str, Any]) -> dict[str, Any]:
         "finalize_mode": series["finalize_mode"],
         "is_active": series["is_active"],
     }
+
+
+def _with_density_metadata(row: dict[str, Any]) -> dict[str, Any]:
+    out = dict(row)
+    density = row.get("density_per_minute")
+    try:
+        density_value = float(density) if density is not None else None
+    except (TypeError, ValueError):
+        density_value = None
+    out["density_state"] = _density_state(density_value)
+    out["grade_note"] = _pressure_grade_note(
+        pressure_grade=row.get("best_pressure_grade") or row.get("pressure_grade"),
+        density_per_minute=density_value,
+        duration_minutes=row.get("duration_minutes"),
+        max_gap_seconds=row.get("max_gap_seconds"),
+    )
+    return out
+
+
+def _density_state(density: float | None) -> str:
+    if density is None:
+        return "UNKNOWN"
+    if density >= 10:
+        return "VERY_HIGH_DENSITY"
+    if density >= 7:
+        return "HIGH_DENSITY"
+    if density >= 5:
+        return "VALID_DENSITY"
+    return "LOW_DENSITY"
+
+
+def _pressure_grade_note(
+    *,
+    pressure_grade: Any,
+    density_per_minute: float | None,
+    duration_minutes: Any,
+    max_gap_seconds: Any,
+) -> str | None:
+    try:
+        duration_value = float(duration_minutes) if duration_minutes is not None else None
+    except (TypeError, ValueError):
+        duration_value = None
+
+    try:
+        gap_value = float(max_gap_seconds) if max_gap_seconds is not None else None
+    except (TypeError, ValueError):
+        gap_value = None
+
+    if (
+        pressure_grade == "B+"
+        and density_per_minute is not None
+        and density_per_minute >= 7
+        and gap_value is not None
+        and gap_value <= 60
+        and duration_value is not None
+        and duration_value < 10
+    ):
+        return "B+ strong density / A- candidate, but duration below 10m"
+
+    if density_per_minute is not None and density_per_minute >= 10:
+        return "Very high density pressure"
+
+    if density_per_minute is not None and density_per_minute >= 7:
+        return "High density pressure"
+
+    return None
 
 
 def _better_pressure_grade(current: Any, candidate: Any) -> Any:

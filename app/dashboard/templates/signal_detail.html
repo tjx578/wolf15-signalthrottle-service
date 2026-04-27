@@ -42,10 +42,21 @@
       <strong>{{ signal.density_per_minute }}</strong>
     </div>
     <div class="detail-item">
+      <span class="label">Density State</span>
+      <strong>{{ signal.density_state or 'UNKNOWN' }}</strong>
+    </div>
+    <div class="detail-item">
       <span class="label">Max Gap</span>
       <strong>{{ signal.max_gap_seconds or '-' }}s</strong>
     </div>
   </div>
+
+  {% if signal.grade_note %}
+  <section class="panel">
+    <h3>Grade Note</h3>
+    <p>{{ signal.grade_note }}</p>
+  </section>
+  {% endif %}
 
   <section class="panel">
     <h3>Rationale</h3>
