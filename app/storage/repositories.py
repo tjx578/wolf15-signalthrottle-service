@@ -603,6 +603,231 @@ class SignalRepository:
             assert row is not None
             return row["id"]
 
+    # ----- signal_outcomes (Phase 4) -----
+
+    async def get_trade_plans_without_outcome(self, limit: int = 20) -> list[dict]:
+        async with get_cursor() as cur:
+            await cur.execute(
+                """
+                SELECT tp.*,
+                       pb.end_utc AS signal_end_utc,
+                       ms.chart_phase AS chart_phase,
+                       ms.price_at_end AS price_at_end
+                FROM trade_plans tp
+                LEFT JOIN signal_outcomes so
+                  ON so.trade_plan_id = tp.id
+                LEFT JOIN pressure_blocks pb
+                  ON pb.id = tp.block_id
+                LEFT JOIN LATERAL (
+                    SELECT chart_phase, price_at_end
+                    FROM market_snapshots
+                    WHERE market_snapshots.block_id = tp.block_id
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                ) ms ON TRUE
+                WHERE so.id IS NULL
+                ORDER BY tp.created_at ASC
+                LIMIT %s
+                """,
+                (limit,),
+            )
+            return await cur.fetchall()
+
+    async def upsert_signal_outcome(
+        self,
+        trade_plan_id: int,
+        result: dict[str, Any],
+    ) -> int:
+        params = {
+            "trade_plan_id": trade_plan_id,
+            "symbol": result.get("symbol"),
+            "pressure_grade": result.get("pressure_grade"),
+            "execution_grade": result.get("execution_grade"),
+            "chart_phase": result.get("chart_phase"),
+            "execution_side": result.get("execution_side"),
+            "signal_end_utc": result.get("signal_end_utc"),
+            "price_at_signal": result.get("price_at_signal"),
+            "price_after_15m": result.get("price_after_15m"),
+            "price_after_30m": result.get("price_after_30m"),
+            "price_after_60m": result.get("price_after_60m"),
+            "mfe_15m": result.get("mfe_15m"),
+            "mae_15m": result.get("mae_15m"),
+            "mfe_30m": result.get("mfe_30m"),
+            "mae_30m": result.get("mae_30m"),
+            "mfe_60m": result.get("mfe_60m"),
+            "mae_60m": result.get("mae_60m"),
+            "result_label": result.get("result_label"),
+            "raw_result": _json_or_none(result.get("raw_result") or {}),
+        }
+
+        async with get_cursor() as cur:
+            await cur.execute(
+                """
+                INSERT INTO signal_outcomes (
+                    trade_plan_id, symbol, pressure_grade, execution_grade,
+                    chart_phase, execution_side, signal_end_utc, price_at_signal,
+                    price_after_15m, price_after_30m, price_after_60m,
+                    mfe_15m, mae_15m, mfe_30m, mae_30m, mfe_60m, mae_60m,
+                    result_label, raw_result, updated_at
+                )
+                VALUES (
+                    %(trade_plan_id)s, %(symbol)s, %(pressure_grade)s, %(execution_grade)s,
+                    %(chart_phase)s, %(execution_side)s, %(signal_end_utc)s, %(price_at_signal)s,
+                    %(price_after_15m)s, %(price_after_30m)s, %(price_after_60m)s,
+                    %(mfe_15m)s, %(mae_15m)s, %(mfe_30m)s, %(mae_30m)s, %(mfe_60m)s, %(mae_60m)s,
+                    %(result_label)s, %(raw_result)s::jsonb, NOW()
+                )
+                ON CONFLICT (trade_plan_id) DO UPDATE SET
+                    symbol = EXCLUDED.symbol,
+                    pressure_grade = EXCLUDED.pressure_grade,
+                    execution_grade = EXCLUDED.execution_grade,
+                    chart_phase = EXCLUDED.chart_phase,
+                    execution_side = EXCLUDED.execution_side,
+                    signal_end_utc = EXCLUDED.signal_end_utc,
+                    price_at_signal = EXCLUDED.price_at_signal,
+                    price_after_15m = EXCLUDED.price_after_15m,
+                    price_after_30m = EXCLUDED.price_after_30m,
+                    price_after_60m = EXCLUDED.price_after_60m,
+                    mfe_15m = EXCLUDED.mfe_15m,
+                    mae_15m = EXCLUDED.mae_15m,
+                    mfe_30m = EXCLUDED.mfe_30m,
+                    mae_30m = EXCLUDED.mae_30m,
+                    mfe_60m = EXCLUDED.mfe_60m,
+                    mae_60m = EXCLUDED.mae_60m,
+                    result_label = EXCLUDED.result_label,
+                    raw_result = EXCLUDED.raw_result,
+                    updated_at = NOW()
+                RETURNING id
+                """,
+                params,
+            )
+            row = await cur.fetchone()
+            assert row is not None
+            return row["id"]
+
+    async def get_latest_outcomes(self, limit: int = 20) -> list[dict]:
+        async with get_cursor() as cur:
+            await cur.execute(
+                """
+                SELECT so.*, tp.action
+                FROM signal_outcomes so
+                LEFT JOIN trade_plans tp ON tp.id = so.trade_plan_id
+                ORDER BY so.signal_end_utc DESC NULLS LAST, so.created_at DESC
+                LIMIT %s
+                """,
+                (limit,),
+            )
+            return await cur.fetchall()
+
+    async def get_outcome_summary(self) -> dict:
+        async with get_cursor() as cur:
+            await cur.execute(
+                """
+                SELECT
+                    COUNT(*) AS total,
+                    COUNT(*) FILTER (WHERE result_label = 'FOLLOW_THROUGH_STRONG') AS strong_count,
+                    AVG(mfe_30m) AS avg_mfe_30m,
+                    AVG(mae_30m) AS avg_mae_30m
+                FROM signal_outcomes
+                """
+            )
+            row = await cur.fetchone() or {}
+            total = int(row.get("total") or 0)
+            strong = int(row.get("strong_count") or 0)
+            strong_pct = (strong / total * 100.0) if total else 0.0
+
+            await cur.execute(
+                """
+                SELECT chart_phase,
+                       COUNT(*) AS cnt,
+                       COUNT(*) FILTER (WHERE result_label = 'FOLLOW_THROUGH_STRONG') AS strong
+                FROM signal_outcomes
+                WHERE chart_phase IS NOT NULL
+                GROUP BY chart_phase
+                """
+            )
+            phase_rows = await cur.fetchall()
+
+            best_phase = None
+            worst_phase = None
+            best_pct = -1.0
+            worst_pct = 101.0
+            for r in phase_rows:
+                cnt = int(r.get("cnt") or 0)
+                if cnt < 3:
+                    continue
+                pct = (int(r.get("strong") or 0) / cnt) * 100.0
+                if pct > best_pct:
+                    best_pct = pct
+                    best_phase = r.get("chart_phase")
+                if pct < worst_pct:
+                    worst_pct = pct
+                    worst_phase = r.get("chart_phase")
+
+            return {
+                "total": total,
+                "strong_pct": round(strong_pct, 2),
+                "avg_mfe_30m": float(row.get("avg_mfe_30m") or 0),
+                "avg_mae_30m": float(row.get("avg_mae_30m") or 0),
+                "best_phase": best_phase,
+                "worst_phase": worst_phase,
+            }
+
+    async def get_outcomes_by_phase(self) -> list[dict]:
+        async with get_cursor() as cur:
+            await cur.execute(
+                """
+                SELECT chart_phase,
+                       COUNT(*) AS count,
+                       COUNT(*) FILTER (WHERE result_label = 'FOLLOW_THROUGH_STRONG') AS strong_count,
+                       AVG(mfe_30m) AS avg_mfe_30m,
+                       AVG(mae_30m) AS avg_mae_30m
+                FROM signal_outcomes
+                WHERE chart_phase IS NOT NULL
+                GROUP BY chart_phase
+                ORDER BY count DESC
+                """
+            )
+            rows = await cur.fetchall()
+            return [_phase_grade_row(r, key="chart_phase") for r in rows]
+
+    async def get_outcomes_by_grade(self) -> list[dict]:
+        async with get_cursor() as cur:
+            await cur.execute(
+                """
+                SELECT pressure_grade,
+                       execution_grade,
+                       COUNT(*) AS count,
+                       COUNT(*) FILTER (WHERE result_label = 'FOLLOW_THROUGH_STRONG') AS strong_count,
+                       AVG(mfe_30m) AS avg_mfe_30m,
+                       AVG(mae_30m) AS avg_mae_30m
+                FROM signal_outcomes
+                GROUP BY pressure_grade, execution_grade
+                ORDER BY count DESC
+                """
+            )
+            rows = await cur.fetchall()
+            return [_phase_grade_row(r) for r in rows]
+
+
+def _phase_grade_row(row: dict, *, key: str | None = None) -> dict:
+    count = int(row.get("count") or 0)
+    strong = int(row.get("strong_count") or 0)
+    strong_pct = (strong / count * 100.0) if count else 0.0
+    out: dict[str, Any] = {
+        "count": count,
+        "strong_count": strong,
+        "strong_pct": round(strong_pct, 2),
+        "avg_mfe_30m": float(row.get("avg_mfe_30m") or 0),
+        "avg_mae_30m": float(row.get("avg_mae_30m") or 0),
+    }
+    if key:
+        out[key] = row.get(key)
+    else:
+        out["pressure_grade"] = row.get("pressure_grade")
+        out["execution_grade"] = row.get("execution_grade")
+    return out
+
 
 def _json_or_none(obj: Any) -> str | None:
     if obj is None:

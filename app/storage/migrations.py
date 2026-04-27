@@ -16,6 +16,7 @@ async def run_migrations() -> None:
         _migration_001_add_event_hash_if_missing,
         _migration_002_ensure_phase2_columns,
         _migration_003_ensure_realtime_columns,
+        _migration_004_ensure_signal_outcomes_columns,
     ]
     for m in migrations:
         try:
@@ -145,3 +146,72 @@ async def _migration_003_ensure_realtime_columns() -> None:
         "is_active, end_utc DESC",
     )
     logger.info("migration_003: realtime columns ensured")
+
+
+async def _ensure_unique_index(index_name: str, table_name: str, columns_sql: str) -> None:
+    async with get_cursor() as cur:
+        await cur.execute(
+            sql.SQL("CREATE UNIQUE INDEX IF NOT EXISTS {} ON {} ({})").format(
+                sql.Identifier(index_name),
+                sql.Identifier(settings.db_schema, table_name),
+                sql.SQL(columns_sql),
+            )
+        )
+
+
+async def _migration_004_ensure_signal_outcomes_columns() -> None:
+    # Create base table if missing (defensive — schema.sql may not have run)
+    async with get_cursor() as cur:
+        await cur.execute(
+            sql.SQL(
+                """
+                CREATE TABLE IF NOT EXISTS {} (
+                    id BIGSERIAL PRIMARY KEY,
+                    trade_plan_id BIGINT,
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                )
+                """
+            ).format(sql.Identifier(settings.db_schema, "signal_outcomes"))
+        )
+
+    columns = [
+        ("symbol", "TEXT"),
+        ("pressure_grade", "TEXT"),
+        ("execution_grade", "TEXT"),
+        ("chart_phase", "TEXT"),
+        ("execution_side", "TEXT"),
+        ("signal_end_utc", "TIMESTAMPTZ"),
+        ("price_at_signal", "NUMERIC"),
+        ("price_after_15m", "NUMERIC"),
+        ("price_after_30m", "NUMERIC"),
+        ("price_after_60m", "NUMERIC"),
+        ("mfe_15m", "NUMERIC"),
+        ("mae_15m", "NUMERIC"),
+        ("mfe_30m", "NUMERIC"),
+        ("mae_30m", "NUMERIC"),
+        ("mfe_60m", "NUMERIC"),
+        ("mae_60m", "NUMERIC"),
+        ("result_label", "TEXT"),
+        ("raw_result", "JSONB"),
+        ("updated_at", "TIMESTAMPTZ DEFAULT NOW()"),
+    ]
+
+    for column_name, type_sql in columns:
+        await _ensure_column("signal_outcomes", column_name, type_sql)
+
+    await _ensure_unique_index(
+        "idx_st_signal_outcomes_trade_plan_id",
+        "signal_outcomes",
+        "trade_plan_id",
+    )
+    await _ensure_index(
+        "idx_st_signal_outcomes_symbol_time",
+        "signal_outcomes",
+        "symbol, signal_end_utc DESC",
+    )
+    await _ensure_index(
+        "idx_st_signal_outcomes_phase_grade",
+        "signal_outcomes",
+        "chart_phase, pressure_grade, execution_grade",
+    )
+    logger.info("migration_004: signal_outcomes columns ensured")

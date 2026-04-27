@@ -129,6 +129,138 @@
 </section>
 
 <section class="panel">
+  <h2>Outcome Summary</h2>
+  <div class="grid">
+    <div class="card">
+      <span class="label">Evaluated</span>
+      <strong>{{ outcome_summary.total }}</strong>
+    </div>
+    <div class="card">
+      <span class="label">Strong Follow-Through %</span>
+      <strong>{{ outcome_summary.strong_pct }}%</strong>
+    </div>
+    <div class="card">
+      <span class="label">Avg MFE 30m</span>
+      <strong>{{ '%.4f' % outcome_summary.avg_mfe_30m }}</strong>
+    </div>
+    <div class="card">
+      <span class="label">Avg MAE 30m</span>
+      <strong>{{ '%.4f' % outcome_summary.avg_mae_30m }}</strong>
+    </div>
+    <div class="card">
+      <span class="label">Best Phase</span>
+      <strong>{{ outcome_summary.best_phase or '-' }}</strong>
+    </div>
+    <div class="card">
+      <span class="label">Worst Phase</span>
+      <strong>{{ outcome_summary.worst_phase or '-' }}</strong>
+    </div>
+  </div>
+</section>
+
+<section class="panel">
+  <h2>Performance by Phase</h2>
+  {% if outcomes_by_phase %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Chart Phase</th>
+          <th>Count</th>
+          <th>Strong %</th>
+          <th>Avg MFE 30m</th>
+          <th>Avg MAE 30m</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in outcomes_by_phase %}
+        <tr>
+          <td>{{ r.chart_phase }}</td>
+          <td>{{ r.count }}</td>
+          <td>{{ r.strong_pct }}%</td>
+          <td>{{ '%.4f' % r.avg_mfe_30m }}</td>
+          <td>{{ '%.4f' % r.avg_mae_30m }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No outcome data yet</p>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <h2>Performance by Grade</h2>
+  {% if outcomes_by_grade %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Pressure</th>
+          <th>Exec</th>
+          <th>Count</th>
+          <th>Strong %</th>
+          <th>Avg MFE 30m</th>
+          <th>Avg MAE 30m</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in outcomes_by_grade %}
+        <tr>
+          <td><span class="badge">{{ r.pressure_grade or '-' }}</span></td>
+          <td><span class="badge">{{ r.execution_grade or '-' }}</span></td>
+          <td>{{ r.count }}</td>
+          <td>{{ r.strong_pct }}%</td>
+          <td>{{ '%.4f' % r.avg_mfe_30m }}</td>
+          <td>{{ '%.4f' % r.avg_mae_30m }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No outcome data yet</p>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <h2>Latest Outcomes</h2>
+  {% if latest_outcomes %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Symbol</th>
+          <th>Phase</th>
+          <th>Side</th>
+          <th>Entry</th>
+          <th>MFE 30m</th>
+          <th>MAE 30m</th>
+          <th>Result</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for o in latest_outcomes %}
+        <tr>
+          <td class="symbol">{{ o.symbol }}</td>
+          <td>{{ o.chart_phase or '-' }}</td>
+          <td>{{ o.execution_side or '-' }}</td>
+          <td>{{ o.price_at_signal or '-' }}</td>
+          <td>{{ o.mfe_30m if o.mfe_30m is not none else '-' }}</td>
+          <td>{{ o.mae_30m if o.mae_30m is not none else '-' }}</td>
+          <td><span class="badge">{{ o.result_label }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No outcomes recorded yet</p>
+  {% endif %}
+</section>
+
+<section class="panel">
   <h2>Replay Logs</h2>
   <form id="replay-form">
     <textarea id="replay-logs" rows="6" placeholder="Paste raw SignalThrottle logs here..."></textarea>

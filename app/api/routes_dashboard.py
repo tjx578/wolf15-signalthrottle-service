@@ -21,6 +21,10 @@ async def dashboard_home(request: Request):
         latest_signals = await repo.get_latest_trade_plans(limit=12, bucket="actionable")
         watchlist_signals = await repo.get_latest_trade_plans(limit=12, bucket="watchlist")
         stats = await repo.get_dashboard_stats()
+        outcome_summary = await repo.get_outcome_summary()
+        outcomes_by_phase = await repo.get_outcomes_by_phase()
+        outcomes_by_grade = await repo.get_outcomes_by_grade()
+        latest_outcomes = await repo.get_latest_outcomes(limit=12)
     except Exception as exc:
         logger.warning("Dashboard DB query failed: %s", exc)
         active_blocks = []
@@ -32,6 +36,17 @@ async def dashboard_home(request: Request):
             "avg_density": "0.0",
             "last_update": "-",
         }
+        outcome_summary = {
+            "total": 0,
+            "strong_pct": 0,
+            "avg_mfe_30m": 0,
+            "avg_mae_30m": 0,
+            "best_phase": None,
+            "worst_phase": None,
+        }
+        outcomes_by_phase = []
+        outcomes_by_grade = []
+        latest_outcomes = []
 
     return templates.TemplateResponse(
         "index.html",
@@ -41,6 +56,10 @@ async def dashboard_home(request: Request):
             "latest_signals": latest_signals,
             "watchlist_signals": watchlist_signals,
             "stats": stats,
+            "outcome_summary": outcome_summary,
+            "outcomes_by_phase": outcomes_by_phase,
+            "outcomes_by_grade": outcomes_by_grade,
+            "latest_outcomes": latest_outcomes,
         },
     )
 

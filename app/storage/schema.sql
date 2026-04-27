@@ -133,6 +133,15 @@ CREATE TABLE IF NOT EXISTS signalthrottle.signal_outcomes (
     id BIGSERIAL PRIMARY KEY,
     trade_plan_id BIGINT REFERENCES signalthrottle.trade_plans(id) ON DELETE CASCADE,
 
+    symbol TEXT,
+    pressure_grade TEXT,
+    execution_grade TEXT,
+    chart_phase TEXT,
+    execution_side TEXT,
+
+    signal_end_utc TIMESTAMPTZ,
+    price_at_signal NUMERIC,
+
     price_after_15m NUMERIC,
     price_after_30m NUMERIC,
     price_after_60m NUMERIC,
@@ -145,5 +154,17 @@ CREATE TABLE IF NOT EXISTS signalthrottle.signal_outcomes (
     mae_60m NUMERIC,
 
     result_label TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    raw_result JSONB,
+
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_st_signal_outcomes_trade_plan_id
+ON signalthrottle.signal_outcomes(trade_plan_id);
+
+CREATE INDEX IF NOT EXISTS idx_st_signal_outcomes_symbol_time
+ON signalthrottle.signal_outcomes(symbol, signal_end_utc DESC);
+
+CREATE INDEX IF NOT EXISTS idx_st_signal_outcomes_phase_grade
+ON signalthrottle.signal_outcomes(chart_phase, pressure_grade, execution_grade);
