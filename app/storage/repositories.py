@@ -614,12 +614,13 @@ class SignalRepository:
                     LIMIT 1
                 ) tp ON TRUE
                 WHERE {where_clause}
-                ORDER BY pb.end_utc DESC
+                ORDER BY pb.end_utc DESC, pb.id DESC
                 LIMIT %s
                 """,
                 params,
             )
-            return await cur.fetchall()
+            rows = await cur.fetchall()
+            return _dedupe_latest_signal_rows(rows)
 
     async def get_trade_plan(self, plan_id: int) -> dict | None:
         async with get_cursor() as cur:
@@ -1021,6 +1022,20 @@ def _phase_grade_row(row: dict, *, key: str | None = None) -> dict:
         out["pressure_grade"] = row.get("pressure_grade")
         out["execution_grade"] = row.get("execution_grade")
     return out
+
+
+def _dedupe_latest_signal_rows(rows: list[dict]) -> list[dict]:
+    deduped: list[dict] = []
+    seen_keys: set[tuple[Any, Any, Any]] = set()
+
+    for row in rows:
+        key = (row.get("symbol"), row.get("start_utc"), row.get("end_utc"))
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        deduped.append(row)
+
+    return deduped
 
 
 def _json_or_none(obj: Any) -> str | None:
