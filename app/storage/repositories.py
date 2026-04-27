@@ -385,6 +385,26 @@ class SignalRepository:
                 )
             return await cur.fetchall()
 
+    async def get_signal_history(
+        self,
+        symbol: str | None = None,
+        limit: int = 50,
+    ) -> list[dict]:
+        return await self.get_block_history(symbol=symbol, limit=limit)
+
+    async def get_signal_series(
+        self,
+        symbol: str | None = None,
+        limit: int = 50,
+    ) -> list[dict]:
+        raw_limit = max(limit * 10, 100)
+        rows = await self.get_block_history(symbol=symbol, limit=raw_limit)
+        return _merge_pressure_series(
+            rows,
+            merge_gap_seconds=settings.max_event_gap_seconds,
+            limit=limit,
+        )
+
     async def get_last_finalized_block(self, symbol: str) -> dict | None:
         async with get_cursor() as cur:
             await cur.execute(
@@ -1040,6 +1060,130 @@ def _matches_signal_bucket(row: dict, bucket: str) -> bool:
     if bucket == "actionable":
         return has_trade_plan and execution_grade in actionable_grades and action not in wait_actions
     return True
+
+
+def _merge_pressure_series(
+    rows: list[dict],
+    *,
+    merge_gap_seconds: int,
+    limit: int | None = None,
+) -> list[dict]:
+    if not rows:
+        return []
+
+    sorted_rows = sorted(
+        rows,
+        key=lambda row: (
+            row.get("symbol") or "",
+            row.get("start_utc") or row.get("end_utc"),
+            row.get("end_utc"),
+            row.get("id") or row.get("block_id") or 0,
+        ),
+    )
+
+    merged: list[dict] = []
+    current: dict[str, Any] | None = None
+
+    for row in sorted_rows:
+        block_id = row.get("id") or row.get("block_id")
+        start_utc = row.get("start_utc")
+        end_utc = row.get("end_utc")
+        if start_utc is None or end_utc is None:
+            continue
+
+        if current is None or row.get("symbol") != current.get("symbol"):
+            if current is not None:
+                merged.append(_finalize_pressure_series(current))
+            current = _init_pressure_series(row, block_id)
+            continue
+
+        gap_seconds = (start_utc - current["end_utc"]).total_seconds()
+        if gap_seconds <= merge_gap_seconds:
+            current["start_utc"] = min(current["start_utc"], start_utc)
+            current["end_utc"] = max(current["end_utc"], end_utc)
+            current["event_count"] += int(row.get("event_count") or 0)
+            current["block_count"] += 1
+            current["block_ids"].append(block_id)
+            current["max_gap_seconds"] = max(
+                float(current.get("max_gap_seconds") or 0),
+                float(row.get("max_gap_seconds") or 0),
+                max(gap_seconds, 0),
+            )
+            if end_utc >= current["latest_end_utc"]:
+                current["latest_end_utc"] = end_utc
+                current["latest_block_id"] = block_id
+                current["latest_pressure_grade"] = row.get("pressure_grade")
+                current["pressure_status"] = row.get("pressure_status")
+                current["finalize_mode"] = row.get("finalize_mode")
+                current["is_active"] = row.get("is_active")
+            current["best_pressure_grade"] = _better_pressure_grade(
+                current.get("best_pressure_grade"),
+                row.get("pressure_grade"),
+            )
+            continue
+
+        merged.append(_finalize_pressure_series(current))
+        current = _init_pressure_series(row, block_id)
+
+    if current is not None:
+        merged.append(_finalize_pressure_series(current))
+
+    merged.sort(key=lambda row: (row.get("end_utc"), row.get("latest_block_id") or 0), reverse=True)
+    if limit is None:
+        return merged
+    return merged[:limit]
+
+
+def _init_pressure_series(row: dict, block_id: Any) -> dict[str, Any]:
+    return {
+        "symbol": row.get("symbol"),
+        "start_utc": row.get("start_utc"),
+        "end_utc": row.get("end_utc"),
+        "latest_end_utc": row.get("end_utc"),
+        "event_count": int(row.get("event_count") or 0),
+        "block_count": 1,
+        "block_ids": [block_id],
+        "latest_block_id": block_id,
+        "latest_pressure_grade": row.get("pressure_grade"),
+        "best_pressure_grade": row.get("pressure_grade"),
+        "pressure_status": row.get("pressure_status"),
+        "finalize_mode": row.get("finalize_mode"),
+        "is_active": row.get("is_active"),
+        "max_gap_seconds": float(row.get("max_gap_seconds") or 0),
+    }
+
+
+def _finalize_pressure_series(series: dict[str, Any]) -> dict[str, Any]:
+    start_utc = series["start_utc"]
+    end_utc = series["end_utc"]
+    duration_minutes = round((end_utc - start_utc).total_seconds() / 60.0, 2)
+    density = round(series["event_count"] / duration_minutes, 2) if duration_minutes > 0 else 0.0
+    return {
+        "symbol": series["symbol"],
+        "start_utc": start_utc,
+        "end_utc": end_utc,
+        "duration_minutes": duration_minutes,
+        "event_count": series["event_count"],
+        "density_per_minute": density,
+        "max_gap_seconds": round(float(series.get("max_gap_seconds") or 0), 2),
+        "block_count": series["block_count"],
+        "block_ids": series["block_ids"],
+        "latest_block_id": series["latest_block_id"],
+        "latest_pressure_grade": series["latest_pressure_grade"],
+        "best_pressure_grade": series["best_pressure_grade"],
+        "pressure_status": series["pressure_status"],
+        "finalize_mode": series["finalize_mode"],
+        "is_active": series["is_active"],
+    }
+
+
+def _better_pressure_grade(current: Any, candidate: Any) -> Any:
+    rank = {"REJECT": 0, "C": 1, "B+": 2, "A-": 3, "A": 4, "A+": 5}
+    current_rank = rank.get(current, -1)
+    candidate_rank = rank.get(candidate, -1)
+    if candidate_rank >= current_rank:
+        return candidate
+    return current
 
 
 def _json_or_none(obj: Any) -> str | None:

@@ -17,6 +17,30 @@ async def latest_signals(limit: int = 20, bucket: str = "all"):
     return {"count": len(plans), "bucket": normalized_bucket, "signals": plans}
 
 
+@router.get("/history")
+async def signal_history(symbol: str | None = None, limit: int = 50):
+    repo = SignalRepository()
+    rows = await repo.get_signal_history(symbol=symbol, limit=limit)
+    return {
+        "count": len(rows),
+        "history_type": "raw_blocks",
+        "symbol": symbol,
+        "signals": rows,
+    }
+
+
+@router.get("/series")
+async def signal_series(symbol: str | None = None, limit: int = 50):
+    repo = SignalRepository()
+    rows = await repo.get_signal_series(symbol=symbol, limit=limit)
+    return {
+        "count": len(rows),
+        "history_type": "merged_pressure_series",
+        "symbol": symbol,
+        "signals": rows,
+    }
+
+
 @router.get("/{signal_id}")
 async def signal_detail(signal_id: int):
     repo = SignalRepository()

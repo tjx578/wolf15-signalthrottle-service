@@ -12,6 +12,44 @@ async def _noop() -> None:
 
 
 class FakeSignalRepository:
+    async def get_signal_history(self, symbol: str | None = None, limit: int = 50) -> list[dict]:
+        data = [
+            {
+                "id": 12,
+                "symbol": "GBPUSD",
+                "start_utc": "2026-04-27T07:25:40Z",
+                "end_utc": "2026-04-27T07:30:03Z",
+                "pressure_grade": "B+",
+            },
+            {
+                "id": 11,
+                "symbol": "GBPUSD",
+                "start_utc": "2026-04-27T07:15:23Z",
+                "end_utc": "2026-04-27T07:25:25Z",
+                "pressure_grade": "A-",
+            },
+        ]
+        if symbol:
+            data = [row for row in data if row["symbol"] == symbol]
+        return data[:limit]
+
+    async def get_signal_series(self, symbol: str | None = None, limit: int = 50) -> list[dict]:
+        data = [
+            {
+                "symbol": "GBPUSD",
+                "start_utc": "2026-04-27T07:15:23Z",
+                "end_utc": "2026-04-27T07:30:03Z",
+                "duration_minutes": 14.67,
+                "event_count": 113,
+                "block_count": 2,
+                "latest_block_id": 12,
+                "best_pressure_grade": "A-",
+            }
+        ]
+        if symbol:
+            data = [row for row in data if row["symbol"] == symbol]
+        return data[:limit]
+
     async def get_latest_trade_plans(self, limit: int = 20, bucket: str = "all") -> list[dict]:
         data = {
             "all": [
@@ -294,3 +332,40 @@ def test_latest_signals_radar_returns_below_threshold_rows(monkeypatch) -> None:
     assert payload["count"] == 1
     assert payload["signals"][0]["symbol"] == "EURGBP"
     assert payload["signals"][0]["dashboard_bucket"] == "radar_below_threshold"
+
+
+def test_signal_history_returns_raw_block_history(monkeypatch) -> None:
+    monkeypatch.setattr(lifecycle, "init_db", _noop)
+    monkeypatch.setattr(lifecycle, "run_migrations", _noop)
+    monkeypatch.setattr(lifecycle, "close_db", _noop)
+    monkeypatch.setattr(routes_signals, "SignalRepository", FakeSignalRepository)
+
+    app = create_app()
+    client = TestClient(app)
+
+    response = client.get("/signals/history", params={"symbol": "GBPUSD"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["history_type"] == "raw_blocks"
+    assert payload["count"] == 2
+    assert payload["signals"][0]["id"] == 12
+
+
+def test_signal_series_returns_merged_pressure_series(monkeypatch) -> None:
+    monkeypatch.setattr(lifecycle, "init_db", _noop)
+    monkeypatch.setattr(lifecycle, "run_migrations", _noop)
+    monkeypatch.setattr(lifecycle, "close_db", _noop)
+    monkeypatch.setattr(routes_signals, "SignalRepository", FakeSignalRepository)
+
+    app = create_app()
+    client = TestClient(app)
+
+    response = client.get("/signals/series", params={"symbol": "GBPUSD"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["history_type"] == "merged_pressure_series"
+    assert payload["count"] == 1
+    assert payload["signals"][0]["block_count"] == 2
+    assert payload["signals"][0]["latest_block_id"] == 12

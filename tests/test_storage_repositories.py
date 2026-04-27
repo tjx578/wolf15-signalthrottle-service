@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from app.storage.repositories import _matches_signal_bucket, _select_latest_signal_rows
+from app.storage.repositories import (
+    _matches_signal_bucket,
+    _merge_pressure_series,
+    _select_latest_signal_rows,
+)
 
 
 def test_select_latest_signal_rows_keeps_latest_row_per_symbol() -> None:
@@ -92,3 +96,75 @@ def test_matches_signal_bucket_classifies_radar_watchlist_and_ready() -> None:
     assert _matches_signal_bucket(radar, "radar") is True
     assert _matches_signal_bucket(watchlist, "watchlist") is True
     assert _matches_signal_bucket(ready, "ready") is True
+
+
+def test_merge_pressure_series_merges_close_same_symbol_blocks() -> None:
+    rows = [
+        {
+            "id": 11,
+            "symbol": "GBPUSD",
+            "start_utc": datetime(2026, 4, 27, 7, 15, 23, tzinfo=timezone.utc),
+            "end_utc": datetime(2026, 4, 27, 7, 25, 25, tzinfo=timezone.utc),
+            "event_count": 50,
+            "max_gap_seconds": 22.0,
+            "pressure_grade": "A-",
+            "pressure_status": "SOFT_FINALIZED",
+            "finalize_mode": "SOFT_FINALIZED",
+            "is_active": False,
+        },
+        {
+            "id": 12,
+            "symbol": "GBPUSD",
+            "start_utc": datetime(2026, 4, 27, 7, 25, 40, tzinfo=timezone.utc),
+            "end_utc": datetime(2026, 4, 27, 7, 30, 3, tzinfo=timezone.utc),
+            "event_count": 63,
+            "max_gap_seconds": 14.58,
+            "pressure_grade": "B+",
+            "pressure_status": "ACTIVE",
+            "finalize_mode": None,
+            "is_active": True,
+        },
+    ]
+
+    merged = _merge_pressure_series(rows, merge_gap_seconds=300)
+
+    assert len(merged) == 1
+    assert merged[0]["symbol"] == "GBPUSD"
+    assert merged[0]["block_count"] == 2
+    assert merged[0]["event_count"] == 113
+    assert merged[0]["latest_block_id"] == 12
+    assert merged[0]["best_pressure_grade"] == "A-"
+
+
+def test_merge_pressure_series_keeps_separate_series_after_hard_gap() -> None:
+    rows = [
+        {
+            "id": 20,
+            "symbol": "GBPUSD",
+            "start_utc": datetime(2026, 4, 27, 7, 15, 23, tzinfo=timezone.utc),
+            "end_utc": datetime(2026, 4, 27, 7, 20, 23, tzinfo=timezone.utc),
+            "event_count": 30,
+            "max_gap_seconds": 18.0,
+            "pressure_grade": "B+",
+            "pressure_status": "HARD_FINALIZED",
+            "finalize_mode": "HARD_FINALIZED",
+            "is_active": False,
+        },
+        {
+            "id": 21,
+            "symbol": "GBPUSD",
+            "start_utc": datetime(2026, 4, 27, 7, 26, 0, tzinfo=timezone.utc),
+            "end_utc": datetime(2026, 4, 27, 7, 31, 0, tzinfo=timezone.utc),
+            "event_count": 35,
+            "max_gap_seconds": 16.0,
+            "pressure_grade": "B+",
+            "pressure_status": "ACTIVE",
+            "finalize_mode": None,
+            "is_active": True,
+        },
+    ]
+
+    merged = _merge_pressure_series(rows, merge_gap_seconds=300)
+
+    assert len(merged) == 2
+    assert {row["latest_block_id"] for row in merged} == {20, 21}

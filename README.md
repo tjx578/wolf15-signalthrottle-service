@@ -729,6 +729,30 @@ GET /signals/latest?bucket=actionable
 GET /signals/latest?bucket=watchlist
 ```
 
+Latest state memakai bucket canonical berikut:
+
+```text
+bucket=radar      -> grade di bawah B+
+bucket=watchlist  -> B+ ke atas, trade plan belum ready
+bucket=ready      -> B+ ke atas, trade plan sudah ada
+```
+
+### Signal history
+
+```http
+GET /signals/history
+```
+
+Mengembalikan raw `pressure_blocks` untuk audit/history.
+
+### Signal series
+
+```http
+GET /signals/series
+```
+
+Mengembalikan merged pressure series untuk same-symbol blocks yang overlap atau berjarak dekat.
+
 ### Active blocks
 
 ```http
@@ -744,6 +768,18 @@ GET /signals/{id}
 ---
 
 ## Dashboard
+
+## Signal State Model
+
+Service memakai tiga representasi yang berbeda dan tidak boleh dicampur:
+
+```text
+pressure_blocks = raw detected blocks / audit history
+latest_signals = latest state per symbol untuk dashboard utama
+pressure_series = merged same-symbol blocks yang overlap / berdekatan
+```
+
+Dashboard utama, owner alert, dan consumer production lain harus memakai latest-state helper, bukan membaca `pressure_blocks` mentah langsung.
 
 Dashboard minimal terdiri dari:
 
