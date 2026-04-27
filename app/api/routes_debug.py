@@ -10,9 +10,33 @@ from app.ingestion.engine_log_sync import (
     get_last_sync_result,
     owner_day_window_utc,
 )
+from app.storage.migrations import run_migrations
+from app.storage.postgres import init_db
 from app.storage.repositories import SignalRepository
 
 router = APIRouter()
+
+
+@router.post("/run-migrations")
+async def debug_run_migrations() -> dict:
+    """Manually re-run schema.sql + migrations.
+
+    Useful when Railway boots an older image or migrations were skipped due to
+    transient DB errors. Idempotent: each migration uses ADD COLUMN IF NOT EXISTS
+    / CREATE TABLE IF NOT EXISTS semantics.
+    """
+    schema_error: str | None = None
+    try:
+        await init_db()
+    except Exception as exc:
+        schema_error = str(exc)
+    results = await run_migrations()
+    ok = all(r.get("status") == "ok" for r in results) and schema_error is None
+    return {
+        "ok": ok,
+        "schema_init_error": schema_error,
+        "migrations": results,
+    }
 
 
 @router.get("/sync")

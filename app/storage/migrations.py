@@ -10,8 +10,12 @@ from app.storage.postgres import get_cursor
 logger = logging.getLogger(__name__)
 
 
-async def run_migrations() -> None:
-    """Run any pending migrations beyond the base schema."""
+async def run_migrations() -> list[dict]:
+    """Run any pending migrations beyond the base schema.
+
+    Returns a list of per-migration results so callers (e.g. /debug/run-migrations)
+    can surface success/failure explicitly instead of relying on log scraping.
+    """
     migrations = [
         _migration_001_add_event_hash_if_missing,
         _migration_002_ensure_phase2_columns,
@@ -19,11 +23,16 @@ async def run_migrations() -> None:
         _migration_004_ensure_signal_outcomes_columns,
         _migration_005_ensure_pressure_series_table,
     ]
+    results: list[dict] = []
     for m in migrations:
         try:
             await m()
+            results.append({"name": m.__name__, "status": "ok"})
+            logger.info("Migration %s applied", m.__name__)
         except Exception as exc:
-            logger.warning("Migration %s skipped: %s", m.__name__, exc)
+            results.append({"name": m.__name__, "status": "error", "error": str(exc)})
+            logger.error("Migration %s FAILED: %s", m.__name__, exc, exc_info=True)
+    return results
 
 
 async def _migration_001_add_event_hash_if_missing() -> None:
