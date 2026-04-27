@@ -1,0 +1,36 @@
+# Exclude Node.js / TypeScript artifacts — this is a Python project
+node_modules/
+*.tsx
+*.ts
+*.js
+tsconfig.json
+package.json
+package-lock.json
+yarn.lock
+.babelrc
+webpack.config.js
+next.config.js
+vite.config.ts
+vite.config.js
+.next/
+dist/
+build/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+.eggs/
+.env
+.venv
+venv/
+env/
+
+# Misc
+.git/
+.gitignore
+.DS_Store
+*.log
