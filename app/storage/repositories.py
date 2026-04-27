@@ -759,7 +759,7 @@ class SignalRepository:
         blocks = [
             _with_density_metadata(row)
             for row in sorted(
-                _dedupe_exact_pressure_block_rows(blocks),
+                _collapse_replay_overlap_block_rows(_dedupe_exact_pressure_block_rows(blocks)),
                 key=lambda row: (row.get("end_utc"), row.get("id") or 0),
                 reverse=True,
             )
@@ -1743,6 +1743,68 @@ def _dedupe_exact_pressure_block_rows(rows: list[dict]) -> list[dict]:
         if existing is None or _pressure_block_order_key(row) > _pressure_block_order_key(existing):
             deduped[key] = row
     return list(deduped.values())
+
+
+def _collapse_replay_overlap_block_rows(rows: list[dict]) -> list[dict]:
+    ranked_rows = sorted(rows, key=_replay_block_preference_key, reverse=True)
+    kept: list[dict] = []
+    for row in ranked_rows:
+        if any(_is_replay_overlap_duplicate(row, candidate) for candidate in kept):
+            continue
+        kept.append(row)
+    return kept
+
+
+def _is_replay_overlap_duplicate(row: dict, candidate: dict) -> bool:
+    if not (_is_replay_row(row) and _is_replay_row(candidate)):
+        return False
+    if row.get("symbol") != candidate.get("symbol"):
+        return False
+
+    row_start = row.get("start_utc")
+    row_end = row.get("end_utc")
+    candidate_start = candidate.get("start_utc")
+    candidate_end = candidate.get("end_utc")
+    if not all((row_start, row_end, candidate_start, candidate_end)):
+        return False
+
+    overlap_start = max(row_start, candidate_start)
+    overlap_end = min(row_end, candidate_end)
+    overlap_seconds = (overlap_end - overlap_start).total_seconds()
+    if overlap_seconds <= 0:
+        return False
+
+    row_seconds = (row_end - row_start).total_seconds()
+    candidate_seconds = (candidate_end - candidate_start).total_seconds()
+    shorter_window = min(row_seconds, candidate_seconds)
+    if shorter_window <= 0:
+        return False
+
+    return overlap_seconds / shorter_window >= 0.9
+
+
+def _is_replay_row(row: dict) -> bool:
+    return row.get("pressure_status") == "REPLAY" or row.get("finalize_mode") == "REPLAY_FINALIZE"
+
+
+def _replay_block_preference_key(row: dict) -> tuple[Any, ...]:
+    start_utc = row.get("start_utc")
+    end_utc = row.get("end_utc")
+    duration_seconds = 0.0
+    if start_utc is not None and end_utc is not None:
+        duration_seconds = max((end_utc - start_utc).total_seconds(), 0.0)
+
+    grade_rank = {"REJECT": 0, "C": 1, "B+": 2, "A-": 3, "A": 4, "A+": 5}
+
+    return (
+        1 if row.get("trade_plan_id") is not None else 0,
+        duration_seconds,
+        float(row.get("event_count") or 0),
+        grade_rank.get(row.get("pressure_grade"), -1),
+        row.get("end_utc"),
+        row.get("start_utc"),
+        row.get("id") or row.get("block_id") or 0,
+    )
 
 
 def _pressure_block_identity(row: dict) -> tuple[Any, ...]:

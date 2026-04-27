@@ -38,6 +38,7 @@ async def run_migrations() -> list[dict]:
         _migration_008_ensure_trade_plans_reason_code,
         _migration_009_backfill_signal_outcomes_h4_context_type,
         _migration_010_cleanup_duplicate_replay_pressure_blocks,
+        _migration_011_cleanup_overlapping_replay_pressure_blocks,
     ]
     results: list[dict] = []
     for m in migrations:
@@ -527,3 +528,88 @@ async def _migration_010_cleanup_duplicate_replay_pressure_blocks() -> None:
         )
 
     logger.info("migration_010: exact duplicate replay pressure_blocks cleaned up conservatively")
+
+
+async def _migration_011_cleanup_overlapping_replay_pressure_blocks() -> None:
+    """Remove replay-only rows that are near-identical overlapping reconstructions
+    of another replay row for the same symbol and have no dependent artifacts.
+
+    This targets the common replay pattern where one alternative reconstruction is
+    almost fully covered by another window but differs by a few seconds at the
+    boundaries. Keep any row that already owns a trade plan or market snapshot.
+    """
+    async with get_cursor() as cur:
+        await cur.execute(
+            sql.SQL(
+                """
+                WITH candidates AS (
+                    SELECT
+                        loser.id
+                    FROM {pressure_blocks} loser
+                    JOIN {pressure_blocks} winner
+                      ON winner.symbol = loser.symbol
+                     AND winner.id <> loser.id
+                     AND winner.pressure_status = 'REPLAY'
+                     AND loser.pressure_status = 'REPLAY'
+                     AND LEAST(winner.end_utc, loser.end_utc) > GREATEST(winner.start_utc, loser.start_utc)
+                    LEFT JOIN {trade_plans} loser_tp ON loser_tp.block_id = loser.id
+                    LEFT JOIN {market_snapshots} loser_ms ON loser_ms.block_id = loser.id
+                    WHERE loser_tp.id IS NULL
+                      AND loser_ms.id IS NULL
+                      AND (
+                            EXTRACT(EPOCH FROM LEAST(winner.end_utc, loser.end_utc) - GREATEST(winner.start_utc, loser.start_utc))
+                            /
+                            NULLIF(
+                                LEAST(
+                                    EXTRACT(EPOCH FROM winner.end_utc - winner.start_utc),
+                                    EXTRACT(EPOCH FROM loser.end_utc - loser.start_utc)
+                                ),
+                                0
+                            )
+                          ) >= 0.9
+                      AND (
+                            CASE WHEN winner.start_utc IS NOT NULL AND winner.end_utc IS NOT NULL
+                                THEN EXTRACT(EPOCH FROM winner.end_utc - winner.start_utc)
+                                ELSE 0 END,
+                            COALESCE(winner.event_count, 0),
+                            CASE COALESCE(winner.pressure_grade, '')
+                                WHEN 'A+' THEN 5
+                                WHEN 'A' THEN 4
+                                WHEN 'A-' THEN 3
+                                WHEN 'B+' THEN 2
+                                WHEN 'C' THEN 1
+                                ELSE 0
+                            END,
+                            winner.end_utc,
+                            winner.id
+                          )
+                          >
+                          (
+                            CASE WHEN loser.start_utc IS NOT NULL AND loser.end_utc IS NOT NULL
+                                THEN EXTRACT(EPOCH FROM loser.end_utc - loser.start_utc)
+                                ELSE 0 END,
+                            COALESCE(loser.event_count, 0),
+                            CASE COALESCE(loser.pressure_grade, '')
+                                WHEN 'A+' THEN 5
+                                WHEN 'A' THEN 4
+                                WHEN 'A-' THEN 3
+                                WHEN 'B+' THEN 2
+                                WHEN 'C' THEN 1
+                                ELSE 0
+                            END,
+                            loser.end_utc,
+                            loser.id
+                          )
+                )
+                DELETE FROM {pressure_blocks} pb
+                USING candidates
+                WHERE pb.id = candidates.id
+                """
+            ).format(
+                pressure_blocks=sql.Identifier(settings.db_schema, "pressure_blocks"),
+                trade_plans=sql.Identifier(settings.db_schema, "trade_plans"),
+                market_snapshots=sql.Identifier(settings.db_schema, "market_snapshots"),
+            )
+        )
+
+    logger.info("migration_011: overlapping replay pressure_blocks cleaned up conservatively")
