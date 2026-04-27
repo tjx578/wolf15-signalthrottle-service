@@ -15,6 +15,7 @@ class PressureBlock(BaseModel):
     end_wita: str | None = None
     chart_start_time: str | None = None
     chart_end_time: str | None = None
+    last_event_utc: datetime | None = None
 
     duration_minutes: float
     event_count: int
@@ -29,4 +30,5 @@ class PressureBlock(BaseModel):
     finalize_mode: str | None = None
 
     is_active: bool = False
+    updated_at: datetime | None = None
     created_at: datetime | None = None

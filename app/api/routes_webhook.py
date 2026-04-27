@@ -6,10 +6,11 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
-from app.config import settings
-from app.parser.signalthrottle_parser import parse_signalthrottle
-from app.parser.timestamp_mapper import to_chart_time, to_wita
-from app.storage.repositories import SignalRepository
+from ..config import settings
+from ..models.log_event import LogEvent
+from ..parser.signalthrottle_parser import parse_signalthrottle
+from ..parser.timestamp_mapper import to_chart_time, to_wita
+from ..storage.repositories import SignalRepository
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -56,14 +57,23 @@ async def receive_signal_throttle(
         raise HTTPException(status_code=400, detail="symbol not found in payload or message")
 
     repo = SignalRepository()
-    result = await repo.insert_signal_event(
+    event = LogEvent(
         symbol=symbol,
         event_type="SIGNAL_THROTTLE",
         timestamp_utc=ts,
-        raw_message=payload.message,
-        source_service=payload.source_service or "wolf15-engine",
         timestamp_wita=to_wita(ts),
         chart_time=to_chart_time(ts, settings.chart_time_offset_hours),
+        raw_message=payload.message,
+        source_service=payload.source_service or "wolf15-engine",
+    )
+    result = await repo.insert_signal_event(
+        symbol=event.symbol,
+        event_type=event.event_type,
+        timestamp_utc=event.timestamp_utc,
+        raw_message=event.raw_message,
+        source_service=event.source_service,
+        timestamp_wita=event.timestamp_wita,
+        chart_time=event.chart_time,
         meta=payload.model_dump(mode="json"),
     )
 
@@ -74,6 +84,12 @@ async def receive_signal_throttle(
             "timestamp_utc": ts.isoformat(),
         }
 
+    block = await repo.upsert_live_block_from_event(
+        event,
+        max_event_gap_seconds=settings.max_event_gap_seconds,
+        chart_offset_hours=settings.chart_time_offset_hours,
+    )
+
     logger.info("Webhook received: %s @ %s", symbol, ts.isoformat())
 
     return {
@@ -81,4 +97,8 @@ async def receive_signal_throttle(
         "symbol": symbol,
         "timestamp_utc": ts.isoformat(),
         "event_id": result["id"],
+        "block_id": block["id"],
+        "block_action": block["action"],
+        "pressure_status": block.get("pressure_status"),
+        "pressure_grade": block.get("pressure_grade"),
     }

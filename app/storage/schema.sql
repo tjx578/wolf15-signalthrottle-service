@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS signalthrottle.pressure_blocks (
     end_wita TEXT,
     chart_start_time TEXT,
     chart_end_time TEXT,
+    last_event_utc TIMESTAMPTZ,
 
     duration_minutes NUMERIC NOT NULL,
     event_count INT NOT NULL,
@@ -48,6 +49,7 @@ CREATE TABLE IF NOT EXISTS signalthrottle.pressure_blocks (
     finalize_mode TEXT,
 
     is_active BOOLEAN DEFAULT FALSE,
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -56,6 +58,9 @@ ON signalthrottle.pressure_blocks(symbol, end_utc DESC);
 
 CREATE INDEX IF NOT EXISTS idx_pressure_blocks_active
 ON signalthrottle.pressure_blocks(is_active) WHERE is_active = TRUE;
+
+CREATE INDEX IF NOT EXISTS idx_st_pressure_blocks_active
+ON signalthrottle.pressure_blocks(is_active, end_utc DESC);
 
 -- -------------------------------------------------------
 

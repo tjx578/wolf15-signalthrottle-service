@@ -15,6 +15,7 @@ async def run_migrations() -> None:
     migrations = [
         _migration_001_add_event_hash_if_missing,
         _migration_002_ensure_phase2_columns,
+        _migration_003_ensure_realtime_columns,
     ]
     for m in migrations:
         try:
@@ -129,3 +130,18 @@ async def _migration_002_ensure_phase2_columns() -> None:
         "execution_grade, created_at DESC",
     )
     logger.info("migration_002: phase 2 columns ensured")
+
+
+async def _migration_003_ensure_realtime_columns() -> None:
+    await _ensure_column("pressure_blocks", "last_event_utc", "TIMESTAMPTZ")
+    await _ensure_column(
+        "pressure_blocks",
+        "updated_at",
+        "TIMESTAMPTZ DEFAULT NOW()",
+    )
+    await _ensure_index(
+        "idx_st_pressure_blocks_active",
+        "pressure_blocks",
+        "is_active, end_utc DESC",
+    )
+    logger.info("migration_003: realtime columns ensured")

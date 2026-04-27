@@ -4,6 +4,10 @@ import logging
 from datetime import datetime
 from typing import Any
 
+from app.models.log_event import LogEvent
+from app.parser.timestamp_mapper import to_chart_time, to_wita
+from app.scoring.pressure_grader import grade_pressure
+from app.scoring.pressure_metrics import calculate_pressure_metrics
 from app.storage.postgres import get_cursor
 from app.utils.json_utils import make_event_hash
 
@@ -85,7 +89,9 @@ class SignalRepository:
         block_relation: str | None = None,
         previous_block_id: int | None = None,
         finalize_mode: str | None = None,
+        last_event_utc: datetime | None = None,
     ) -> dict:
+        effective_last_event_utc = last_event_utc or end_utc
         async with get_cursor() as cur:
             # Find existing active block for this symbol
             await cur.execute(
@@ -103,16 +109,19 @@ class SignalRepository:
                     """
                     UPDATE pressure_blocks SET
                         end_utc = %s, end_wita = %s, chart_end_time = %s,
+                        last_event_utc = %s,
                         duration_minutes = %s, event_count = %s,
                         density_per_minute = %s, avg_gap_seconds = %s,
                         max_gap_seconds = %s, pressure_grade = %s,
                         pressure_status = %s, block_relation = %s,
-                        finalize_mode = %s
+                        finalize_mode = %s,
+                        updated_at = NOW()
                     WHERE id = %s
                     RETURNING id
                     """,
                     (
                         end_utc, end_wita, chart_end_time,
+                        effective_last_event_utc,
                         duration_minutes, event_count,
                         density_per_minute, avg_gap_seconds,
                         max_gap_seconds, pressure_grade,
@@ -122,23 +131,29 @@ class SignalRepository:
                 )
                 row = await cur.fetchone()
                 assert row is not None
-                return {"id": row["id"], "action": "updated"}
+                return {
+                    "id": row["id"],
+                    "action": "updated",
+                    "pressure_status": pressure_status,
+                    "pressure_grade": pressure_grade,
+                }
             else:
                 await cur.execute(
                     """
                     INSERT INTO pressure_blocks
                         (symbol, start_utc, end_utc, start_wita, end_wita,
-                         chart_start_time, chart_end_time,
+                         chart_start_time, chart_end_time, last_event_utc,
                          duration_minutes, event_count, density_per_minute,
                          avg_gap_seconds, max_gap_seconds,
                          pressure_grade, pressure_status, block_relation,
                          previous_block_id, finalize_mode, is_active)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,TRUE)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,TRUE)
                     RETURNING id
                     """,
                     (
                         symbol, start_utc, end_utc, start_wita, end_wita,
                         chart_start_time, chart_end_time,
+                        effective_last_event_utc,
                         duration_minutes, event_count, density_per_minute,
                         avg_gap_seconds, max_gap_seconds,
                         pressure_grade, pressure_status, block_relation,
@@ -147,7 +162,131 @@ class SignalRepository:
                 )
                 row = await cur.fetchone()
                 assert row is not None
-                return {"id": row["id"], "action": "created"}
+                return {
+                    "id": row["id"],
+                    "action": "created",
+                    "pressure_status": pressure_status,
+                    "pressure_grade": pressure_grade,
+                }
+
+    async def get_active_block(self, symbol: str) -> dict | None:
+        async with get_cursor() as cur:
+            await cur.execute(
+                """
+                SELECT * FROM pressure_blocks
+                WHERE symbol = %s AND is_active = TRUE
+                ORDER BY end_utc DESC LIMIT 1
+                """,
+                (symbol,),
+            )
+            return await cur.fetchone()
+
+    async def get_signal_events_in_range(
+        self,
+        symbol: str,
+        start_utc: datetime,
+        end_utc: datetime,
+    ) -> list[LogEvent]:
+        async with get_cursor() as cur:
+            await cur.execute(
+                """
+                SELECT symbol, event_type, timestamp_utc, timestamp_wita,
+                       chart_time, raw_message, source_service
+                FROM signal_events
+                WHERE symbol = %s
+                  AND timestamp_utc >= %s
+                  AND timestamp_utc <= %s
+                ORDER BY timestamp_utc ASC
+                """,
+                (symbol, start_utc, end_utc),
+            )
+            rows = await cur.fetchall()
+
+        return [
+            LogEvent(
+                symbol=row["symbol"],
+                event_type=row["event_type"],
+                timestamp_utc=row["timestamp_utc"],
+                timestamp_wita=row.get("timestamp_wita"),
+                chart_time=row.get("chart_time"),
+                raw_message=row["raw_message"],
+                source_service=row.get("source_service") or "wolf15-engine",
+            )
+            for row in rows
+        ]
+
+    async def mark_other_active_blocks_cooling(self, symbol: str) -> None:
+        async with get_cursor() as cur:
+            await cur.execute(
+                """
+                UPDATE pressure_blocks
+                SET pressure_status = 'COOLING', updated_at = NOW()
+                WHERE is_active = TRUE
+                  AND symbol <> %s
+                  AND pressure_status = 'ACTIVE'
+                """,
+                (symbol,),
+            )
+
+    async def upsert_live_block_from_event(
+        self,
+        event: LogEvent,
+        *,
+        max_event_gap_seconds: int,
+        chart_offset_hours: int,
+    ) -> dict:
+        await self.mark_other_active_blocks_cooling(event.symbol)
+
+        existing = await self.get_active_block(event.symbol)
+        previous_block_id: int | None = None
+        start_utc = event.timestamp_utc
+
+        if existing:
+            previous_block_id = existing.get("previous_block_id")
+            gap_seconds = (event.timestamp_utc - existing["end_utc"]).total_seconds()
+            if gap_seconds > max_event_gap_seconds:
+                await self.mark_block_hard_finalized(existing["id"])
+                existing = None
+            else:
+                start_utc = existing["start_utc"]
+
+        if existing is None:
+            last_finalized = await self.get_last_finalized_block(event.symbol)
+            previous_block_id = last_finalized["id"] if last_finalized else previous_block_id
+
+        events = await self.get_signal_events_in_range(
+            event.symbol,
+            start_utc,
+            event.timestamp_utc,
+        )
+        metrics = calculate_pressure_metrics(events)
+        pressure_grade = grade_pressure(
+            duration=metrics["duration_minutes"],
+            event_count=metrics["event_count"],
+            density=metrics["density_per_minute"],
+            max_gap=metrics["max_gap_seconds"],
+        )
+
+        return await self.upsert_active_block(
+            symbol=event.symbol,
+            start_utc=start_utc,
+            end_utc=event.timestamp_utc,
+            start_wita=to_wita(start_utc),
+            end_wita=to_wita(event.timestamp_utc),
+            chart_start_time=to_chart_time(start_utc, chart_offset_hours),
+            chart_end_time=to_chart_time(event.timestamp_utc, chart_offset_hours),
+            duration_minutes=metrics["duration_minutes"],
+            event_count=metrics["event_count"],
+            density_per_minute=metrics["density_per_minute"],
+            avg_gap_seconds=metrics["avg_gap_seconds"],
+            max_gap_seconds=metrics["max_gap_seconds"],
+            pressure_grade=pressure_grade,
+            pressure_status="ACTIVE",
+            block_relation=None,
+            previous_block_id=previous_block_id,
+            finalize_mode=None,
+            last_event_utc=event.timestamp_utc,
+        )
 
     async def finalize_block(self, block_id: int, finalize_mode: str) -> None:
         async with get_cursor() as cur:
@@ -158,6 +297,57 @@ class SignalRepository:
                 WHERE id = %s
                 """,
                 (finalize_mode, block_id),
+            )
+
+    async def get_active_or_cooling_blocks(self) -> list[dict]:
+        async with get_cursor() as cur:
+            await cur.execute(
+                """
+                SELECT * FROM pressure_blocks
+                WHERE is_active = TRUE
+                  AND pressure_status IN ('ACTIVE', 'COOLING')
+                ORDER BY end_utc DESC
+                """
+            )
+            return await cur.fetchall()
+
+    async def mark_block_cooling(self, block_id: int) -> None:
+        async with get_cursor() as cur:
+            await cur.execute(
+                """
+                UPDATE pressure_blocks
+                SET pressure_status = 'COOLING', updated_at = NOW()
+                WHERE id = %s AND is_active = TRUE
+                """,
+                (block_id,),
+            )
+
+    async def mark_block_soft_finalized(self, block_id: int) -> None:
+        async with get_cursor() as cur:
+            await cur.execute(
+                """
+                UPDATE pressure_blocks
+                SET is_active = FALSE,
+                    pressure_status = 'SOFT_FINALIZED',
+                    finalize_mode = 'SOFT_FINALIZED',
+                    updated_at = NOW()
+                WHERE id = %s
+                """,
+                (block_id,),
+            )
+
+    async def mark_block_hard_finalized(self, block_id: int) -> None:
+        async with get_cursor() as cur:
+            await cur.execute(
+                """
+                UPDATE pressure_blocks
+                SET is_active = FALSE,
+                    pressure_status = 'HARD_FINALIZED',
+                    finalize_mode = 'HARD_FINALIZED',
+                    updated_at = NOW()
+                WHERE id = %s
+                """,
+                (block_id,),
             )
 
     async def get_active_blocks(self) -> list[dict]:
