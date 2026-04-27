@@ -237,7 +237,7 @@ def test_merge_pressure_series_dedupes_identical_replay_rows_and_preserves_max_e
     assert merged[0]["start_utc"] == datetime(2026, 4, 27, 6, 57, 13, tzinfo=timezone.utc)
     assert merged[0]["end_utc"] == datetime(2026, 4, 27, 7, 15, 17, tzinfo=timezone.utc)
     assert merged[0]["event_count"] == 118
-    assert merged[0]["block_count"] == 2
+    assert merged[0]["block_count"] == 1
     assert merged[0]["latest_block_id"] == 9
 
 
@@ -282,7 +282,7 @@ def test_select_latest_signal_rows_uses_one_series_for_overlapping_replay_blocks
     assert len(deduped) == 1
     assert deduped[0]["block_id"] == 9
     assert deduped[0]["event_count"] == 118
-    assert deduped[0]["block_count"] == 2
+    assert deduped[0]["block_count"] == 1
     assert deduped[0]["start_utc"] == datetime(2026, 4, 27, 6, 57, 13, tzinfo=timezone.utc)
     assert deduped[0]["end_utc"] == datetime(2026, 4, 27, 7, 15, 17, tzinfo=timezone.utc)
 
@@ -389,6 +389,7 @@ def test_get_signal_series_detail_dedupes_exact_raw_blocks(monkeypatch) -> None:
         "end_utc": datetime(2026, 4, 27, 7, 30, 3, tzinfo=timezone.utc),
         "latest_block_id": 23,
         "latest_trade_plan_id": None,
+        "block_ids": [23],
     }
     latest_snapshot = {"block_id": 23, "chart_phase": "PIVOT_RECLAIM_CONTINUATION"}
     raw_blocks = [
@@ -480,5 +481,5 @@ def test_get_signal_series_detail_dedupes_exact_raw_blocks(monkeypatch) -> None:
     detail = asyncio.run(repo.get_signal_series_detail("GBPUSD"))
 
     assert detail is not None
-    assert len(detail["blocks"]) == 2
-    assert [block["id"] for block in detail["blocks"]] == [23, 25]
+    assert len(detail["blocks"]) == 1
+    assert [block["id"] for block in detail["blocks"]] == [23]

@@ -756,6 +756,9 @@ class SignalRepository:
                 (symbol, series["end_utc"], series["start_utc"]),
             )
             blocks = await cur.fetchall()
+        series_block_ids = _series_block_ids(series)
+        if series_block_ids:
+            blocks = [row for row in blocks if _row_block_id(row) in series_block_ids]
         blocks = [
             _with_density_metadata(row)
             for row in sorted(
@@ -1674,8 +1677,6 @@ def _merge_pressure_series(
         if gap_seconds <= merge_gap_seconds:
             current["start_utc"] = min(current["start_utc"], start_utc)
             current["end_utc"] = max(current["end_utc"], end_utc)
-            current["block_count"] += 1
-            current["block_ids"].append(block_id)
             current["max_gap_seconds"] = max(
                 float(current.get("max_gap_seconds") or 0),
                 float(row.get("max_gap_seconds") or 0),
@@ -1684,12 +1685,15 @@ def _merge_pressure_series(
             if start_utc <= current["latest_end_utc"]:
                 # Overlapping windows from replay are alternative reconstructions
                 # of the same underlying pressure sequence. Keep the widest
-                # coverage instead of double-counting events.
+                # coverage instead of double-counting events or surfacing
+                # replay alternatives as separate raw-history blocks.
                 current["event_count"] = max(
                     current["event_count"],
                     int(row.get("event_count") or 0),
                 )
             else:
+                current["block_count"] += 1
+                current["block_ids"].append(block_id)
                 current["event_count"] += int(row.get("event_count") or 0)
             if end_utc >= current["latest_end_utc"]:
                 current["latest_end_utc"] = end_utc
@@ -1834,6 +1838,13 @@ def _pressure_block_order_key(row: dict) -> tuple[Any, ...]:
 
 def _row_block_id(row: dict) -> Any:
     return row.get("id") or row.get("block_id")
+
+
+def _series_block_ids(series: dict[str, Any]) -> set[Any]:
+    raw_ids = series.get("block_ids") or []
+    if not isinstance(raw_ids, list):
+        return set()
+    return {block_id for block_id in raw_ids if block_id is not None}
 
 
 def _finalize_pressure_series(series: dict[str, Any]) -> dict[str, Any]:
