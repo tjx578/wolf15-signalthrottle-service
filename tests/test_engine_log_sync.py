@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import asyncio
 import app.ingestion.engine_log_sync as engine_log_sync
 
 
@@ -44,6 +45,15 @@ async def _fake_fetch_logs(self, start_utc: datetime, end_utc: datetime) -> str:
     )
 
 
+async def _fake_fetch_json_logs(self, start_utc: datetime, end_utc: datetime) -> str:
+    return "\n".join(
+        [
+            '{"message":"[SignalThrottle] GBPUSD THROTTLED — 3 signals in last 300s (max 3)","severity":"error","attributes":{"level":"error"},"timestamp":"2026-04-27T07:15:23.169918856Z"}',
+            '{"message":"[SignalThrottle] GBPUSD THROTTLED — 3 signals in last 300s (max 3)","severity":"error","attributes":{"level":"error"},"timestamp":"2026-04-27T07:15:27.593071262Z"}',
+        ]
+    )
+
+
 def test_sync_today_ingests_new_engine_logs(monkeypatch) -> None:
     repository = FakeSignalRepository()
 
@@ -56,7 +66,7 @@ def test_sync_today_ingests_new_engine_logs(monkeypatch) -> None:
         now_provider=lambda: datetime(2026, 4, 27, 7, 30, tzinfo=timezone.utc),
     )
 
-    result = engine_log_sync.asyncio.run(syncer.sync_today())
+    result = asyncio.run(syncer.sync_today())
 
     assert result["status"] == "ok"
     assert result["events_parsed"] == 2
@@ -79,10 +89,30 @@ def test_sync_today_skips_duplicate_engine_logs(monkeypatch) -> None:
         now_provider=lambda: datetime(2026, 4, 27, 7, 30, tzinfo=timezone.utc),
     )
 
-    result = engine_log_sync.asyncio.run(syncer.sync_today())
+    result = asyncio.run(syncer.sync_today())
 
     assert result["events_parsed"] == 2
     assert result["events_stored"] == 1
     assert result["duplicates_skipped"] == 1
     assert repository.upserted == ["GBPUSD"]
     FakeSignalRepository.duplicate_timestamps = set()
+
+
+def test_sync_today_ingests_json_structured_engine_logs(monkeypatch) -> None:
+    repository = FakeSignalRepository()
+
+    monkeypatch.setattr(engine_log_sync.settings, "engine_log_sync_enabled", True)
+    monkeypatch.setattr(engine_log_sync.settings, "engine_log_source_url", "https://example.com/logs")
+    monkeypatch.setattr(engine_log_sync.EngineLogSync, "fetch_logs", _fake_fetch_json_logs)
+
+    syncer = engine_log_sync.EngineLogSync(
+        repo_factory=lambda: repository,
+        now_provider=lambda: datetime(2026, 4, 27, 7, 30, tzinfo=timezone.utc),
+    )
+
+    result = asyncio.run(syncer.sync_today())
+
+    assert result["status"] == "ok"
+    assert result["events_parsed"] == 2
+    assert result["events_stored"] == 2
+    assert repository.upserted == ["GBPUSD", "GBPUSD"]

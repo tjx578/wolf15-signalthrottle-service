@@ -68,6 +68,10 @@ class FakeSignalRepository:
             ]
         return plans[:limit]
 
+    async def get_latest_signals(self, limit: int = 50, bucket: str = "watchlist") -> list[dict]:
+        plans = list(reversed(self.__class__.trade_plans))
+        return plans[:limit]
+
 
 async def _noop() -> None:
     return None
@@ -120,3 +124,35 @@ def test_replay_logs_creates_trade_plan_and_latest_signal(monkeypatch) -> None:
     assert latest_payload["count"] == 1
     assert latest_payload["signals"][0]["symbol"] == "USDJPY"
     assert latest_payload["signals"][0]["pressure_grade"] == "B+"
+
+
+def test_replay_logs_accepts_structured_json_lines(monkeypatch) -> None:
+    FakeSignalRepository.reset()
+    monkeypatch.setattr(lifecycle, "init_db", _noop)
+    monkeypatch.setattr(lifecycle, "run_migrations", _noop)
+    monkeypatch.setattr(lifecycle, "close_db", _noop)
+    monkeypatch.setattr(routes_replay, "SignalRepository", FakeSignalRepository)
+    monkeypatch.setattr(routes_signals, "SignalRepository", FakeSignalRepository)
+    monkeypatch.setattr(
+        routes_replay,
+        "enrich_block_with_market_context",
+        fake_enrich_block_with_market_context,
+    )
+
+    app = create_app()
+    client = TestClient(app)
+    logs = "\n".join(
+        [
+            '{"message":"[SignalThrottle] GBPUSD THROTTLED — 3 signals in last 300s (max 3)","severity":"error","attributes":{"level":"error"},"timestamp":"2026-04-27T07:15:23.169918856Z"}',
+            '{"message":"[SignalThrottle] GBPUSD THROTTLED — 3 signals in last 300s (max 3)","severity":"error","attributes":{"level":"error"},"timestamp":"2026-04-27T07:19:55.093229711Z"}',
+        ]
+    )
+
+    replay_response = client.post("/replay/logs", json={"logs": logs})
+
+    assert replay_response.status_code == 200
+    replay_payload = replay_response.json()
+    assert replay_payload["status"] == "processed"
+    assert replay_payload["events_parsed"] == 2
+    assert replay_payload["blocks_detected"] == 1
+    assert replay_payload["blocks"][0]["symbol"] == "GBPUSD"
