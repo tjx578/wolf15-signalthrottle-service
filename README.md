@@ -815,6 +815,27 @@ GET /signals/series
 
 Mengembalikan merged pressure series untuk same-symbol blocks yang overlap atau berjarak dekat.
 
+Example row:
+
+```json
+{
+    "symbol": "NZDCHF",
+    "start_utc": "2026-04-22T13:00:28Z",
+    "end_utc": "2026-04-22T13:14:03Z",
+    "duration_minutes": 13.59,
+    "event_count": 104,
+    "density_per_minute": 7.65,
+    "max_gap_seconds": 264.71,
+    "block_count": 2,
+    "latest_pressure_grade": "FAILED_MIN_DURATION",
+    "best_pressure_grade": "B+",
+    "best_valid_block_grade": "B+",
+    "series_reason": "SPLIT_BY_CONTINUITY_GAP",
+    "series_gap_rule_seconds": 300,
+    "block_continuity_rule_seconds": 90
+}
+```
+
 ### Active blocks
 
 ```http
@@ -889,10 +910,13 @@ MFE/MAE result
 ### Block formation
 
 ```text
-Block dimulai saat symbol muncul.
-Block lanjut jika symbol sama dan gap <= 300 detik.
-Block putus jika pair lain muncul.
-Block putus jika gap > 300 detik.
+Canonical family hidup selama symbol tetap sama, tidak ada interleaving symbol lain,
+dan gap antar event <= 300 detik.
+
+Canonical family selesai jika symbol lain muncul di global chronological stream,
+atau gap antar event > 300 detik.
+
+Di dalam canonical family itu, continuity block dipotong jika gap antar event > 90 detik.
 ```
 
 ### Pressure grading
@@ -923,6 +947,59 @@ max_gap <= 90s
 C:
 valid but weak density or large max gap
 ```
+
+### Pressure Quality vs Trade Direction
+
+Release-note ready summary:
+
+```text
+SignalThrottle sekarang memproses pressure dalam dua lapis: canonical family dan continuity block.
+Canonical family tetap hidup selama symbol tidak tergantikan di global stream dan gap antar event <= 300 detik.
+Di dalam family itu, continuity block dipotong saat gap > 90 detik agar grading dihitung dari run yang masih sehat.
+Pressure grade tetap mengukur kualitas logs, bukan arah trade; trade direction tetap ditentukan oleh chart_phase dan market structure.
+```
+
+Prinsip inti service ini harus dibaca dalam dua layer yang berbeda:
+
+```text
+pressure_grade = mutu pressure block
+chart_phase    = makna struktural + arah action
+```
+
+Artinya:
+
+```text
+A / A+ tidak berarti BUY otomatis
+B+ tidak berarti SELL otomatis
+grade tinggi hanya berarti pressure run-nya rapat, sehat, dan layak diperhatikan
+arah trade baru ditentukan setelah market structure / chart phase dibaca
+```
+
+Karena itu satu block `A+` bisa bermakna:
+
+```text
+bullish continuation
+bearish continuation
+upper exhaustion
+support decision / breakdown risk
+```
+
+Repo ini juga membedakan dua jenis gap yang sengaja tidak boleh dicampur:
+
+```text
+max_event_gap_seconds      = 300s  -> batas canonical family / hard timeout
+max_continuity_gap_seconds = 90s   -> batas continuity block sehat
+```
+
+Makna operasionalnya:
+
+```text
+gap <= 90s        -> masih satu continuity-valid pressure block
+gap 90s sampai 300s -> block pecah, tetapi masih boleh satu pressure_series
+gap > 300s        -> series keluarga itu selesai total
+```
+
+Desain ini dipakai karena pola signal berkualitas tinggi di data historis selalu menunjukkan density sehat dan internal max gap kecil. Tujuannya adalah menjaga agar satu jeda besar di dalam family tidak merusak grading seluruh run, sambil tetap mempertahankan rule awal bahwa 300 detik adalah batas akhir sequence canonical.
 
 ### Block relation
 

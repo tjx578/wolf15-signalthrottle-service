@@ -41,9 +41,16 @@ class FakeSignalRepository:
                 "end_utc": "2026-04-27T07:30:03Z",
                 "duration_minutes": 14.67,
                 "event_count": 113,
+                "density_per_minute": 7.7,
+                "max_gap_seconds": 22.0,
                 "block_count": 2,
                 "latest_block_id": 12,
                 "best_pressure_grade": "A-",
+                "latest_pressure_grade": "B+",
+                "best_valid_block_grade": "A-",
+                "series_reason": "SPLIT_BY_CONTINUITY_GAP",
+                "series_gap_rule_seconds": 300,
+                "block_continuity_rule_seconds": 90,
             }
         ]
         if symbol:
@@ -506,3 +513,7 @@ def test_signal_series_returns_merged_pressure_series(monkeypatch) -> None:
     assert payload["count"] == 1
     assert payload["signals"][0]["block_count"] == 2
     assert payload["signals"][0]["latest_block_id"] == 12
+    assert payload["signals"][0]["series_reason"] == "SPLIT_BY_CONTINUITY_GAP"
+    assert payload["signals"][0]["best_valid_block_grade"] == "A-"
+    assert payload["signals"][0]["series_gap_rule_seconds"] == 300
+    assert payload["signals"][0]["block_continuity_rule_seconds"] == 90

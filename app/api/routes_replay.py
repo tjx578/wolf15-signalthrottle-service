@@ -8,7 +8,11 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from ..config import settings
-from ..detector.sequence_builder import build_canonical_sequences, make_block_hash
+from ..detector.sequence_builder import (
+    build_canonical_sequences,
+    make_block_hash,
+    split_sequence_by_continuity_gap,
+)
 from ..models.log_event import LogEvent
 from ..parser.signalthrottle_parser import parse_signalthrottle
 from ..parser.timestamp_mapper import to_chart_time, to_wita
@@ -96,12 +100,20 @@ async def replay_logs(payload: ReplayPayload):
     # that a different pair appearing closes the previous block, even if the
     # original pair returns within max_gap_seconds.
     sequences = build_canonical_sequences(events, settings.max_event_gap_seconds)
+    continuity_blocks = [
+        block
+        for sequence in sequences
+        for block in split_sequence_by_continuity_gap(
+            sequence,
+            settings.max_continuity_gap_seconds,
+        )
+    ]
     block_results = []
     blocks_created = 0
     blocks_updated = 0
     trade_plan_count = 0
 
-    for seq_events in sequences:
+    for seq_events in continuity_blocks:
         symbol = seq_events[0].symbol
         metrics = calculate_pressure_metrics(seq_events)
         grade = grade_pressure(

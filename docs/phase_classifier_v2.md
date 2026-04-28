@@ -17,6 +17,56 @@ Rule table ini adalah spesifikasi implementable untuk phase classifier berbasis 
 
 ## H4 Semantic Layer
 
+## Pressure Grade Interpretation
+
+`pressure_grade` bukan label arah trade. Ia hanya menjelaskan kualitas pressure block dari sisi durasi, density, dan internal gap.
+
+Interpretasi arah tetap berasal dari `chart_phase`, `action`, `reason_code`, dan gating structure yang dibaca dari snapshot.
+
+Jadi:
+
+- `A+` bisa berarti continuation atau exhaustion
+- `A` dan `A-` bisa berarti bullish atau bearish context
+- `B+` bisa tetap valid sebagai watchlist pressure tanpa menjadi entry langsung
+
+Di level engine, repo juga membedakan:
+
+- `max_event_gap_seconds = 300` sebagai batas canonical family
+- `max_continuity_gap_seconds = 90` sebagai batas continuity block sehat
+
+Akibatnya satu family bisa tetap satu `pressure_series`, tetapi terpecah menjadi beberapa `pressure_blocks` bila continuity internalnya rusak.
+
+## NZDCHF Case Study
+
+Contoh NZDCHF membantu menjelaskan kenapa continuity dan direction tidak boleh dicampur.
+
+Secara historis, run NZDCHF yang kuat menunjukkan pola seperti ini:
+
+- density sehat
+- internal max gap kecil, sekitar 27 sampai 33 detik
+- grade tinggi (`A+`, `A+`, `A-`) pada pressure run yang rapat
+
+Tetapi arah trade dari run tersebut tidak identik:
+
+- satu run `A+` bisa dibaca sebagai `UPPER_RANGE_EXHAUSTION_RISK`
+- run `A+` lain bisa dibaca sebagai `BEARISH_PULLBACK_CONTINUATION`
+- run `A-` bisa berakhir sebagai `SUPPORT_REACTION_PENDING` atau context breakdown risk
+
+Artinya:
+
+- `A+` tidak berarti buy otomatis
+- `A+` juga tidak berarti sell otomatis
+- grade hanya mengatakan pressure-nya sehat
+- `chart_phase`, `action`, dan `reason_code` tetap menentukan interpretasi akhirnya
+
+Contoh ini juga menjelaskan kenapa gap besar seperti `264s` tidak layak diperlakukan sebagai satu continuity block sehat, walaupun masih berada di bawah hard family timeout `300s`.
+
+Rule praktisnya:
+
+- `300s` menjaga family besar tetap utuh
+- `90s` menjaga kualitas continuity block tetap bersih
+- family boleh tetap satu `pressure_series`, tetapi grading harus dihitung dari sub-block yang continuity-nya masih valid
+
 Selain `h4_structure`, classifier sekarang mengembalikan `h4_context_type` untuk membedakan subtype H4 yang dipakai downstream scoring/API:
 
 - `CONTINUATION_TREND`

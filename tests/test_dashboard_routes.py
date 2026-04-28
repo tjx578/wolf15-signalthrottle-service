@@ -172,7 +172,11 @@ class FakeSignalRepository:
                 "density_state": "HIGH_DENSITY",
                 "block_count": 2,
                 "best_pressure_grade": "A-",
+                "best_valid_block_grade": "A-",
                 "latest_pressure_grade": "B+",
+                "series_reason": "SPLIT_BY_CONTINUITY_GAP",
+                "series_gap_rule_seconds": 300,
+                "block_continuity_rule_seconds": 90,
                 "pressure_status": "ACTIVE",
                 "max_gap_seconds": 22.0,
                 "latest_trade_plan_id": 9,
@@ -421,6 +425,10 @@ def test_series_detail_shows_merged_series_and_raw_blocks(monkeypatch) -> None:
     assert "Latest Market Snapshot" in response.text
     assert "H4 Promotion Gate" in response.text
     assert "BEARISH_CONTINUATION" in response.text
+    assert "Best Valid Block Grade" in response.text
+    assert "SPLIT_BY_CONTINUITY_GAP" in response.text
+    assert "Series Gap Rule" in response.text
+    assert "Continuity Block Rule" in response.text
     assert "Plan 9" in response.text
     assert "2026-04-27T07:15:23Z" in response.text
 

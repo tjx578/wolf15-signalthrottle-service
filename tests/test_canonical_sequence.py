@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from app.detector.sequence_builder import (
     build_canonical_sequences,
     make_block_hash,
+    split_sequence_by_continuity_gap,
 )
 from app.models.log_event import LogEvent
 
@@ -68,6 +69,22 @@ def test_canonical_sequence_keeps_single_block_when_gap_under_max() -> None:
 
     assert len(sequences) == 1
     assert len(sequences[0]) == 5
+
+
+def test_continuity_gap_splits_sub_blocks_without_changing_canonical_family() -> None:
+    base = datetime(2026, 4, 24, 13, 0, 0, tzinfo=timezone.utc)
+    events = [
+        _ev("NZDCHF", base + timedelta(seconds=offset))
+        for offset in (0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 240, 250, 260)
+    ]
+
+    sequences = build_canonical_sequences(events, max_gap_seconds=300)
+    sub_blocks = split_sequence_by_continuity_gap(sequences[0], max_gap_seconds=90)
+
+    assert len(sequences) == 1
+    assert len(sub_blocks) == 2
+    assert len(sub_blocks[0]) == 10
+    assert len(sub_blocks[1]) == 3
 
 
 def test_block_hash_is_stable_for_same_events() -> None:

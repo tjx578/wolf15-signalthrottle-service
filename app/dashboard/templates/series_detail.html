@@ -42,8 +42,24 @@
       <span class="badge badge-lg">{{ detail.series.best_pressure_grade }}</span>
     </div>
     <div class="detail-item">
+      <span class="label">Best Valid Block Grade</span>
+      <span class="badge badge-lg">{{ detail.series.best_valid_block_grade or '-' }}</span>
+    </div>
+    <div class="detail-item">
       <span class="label">Latest Grade</span>
       <span class="badge badge-lg">{{ detail.series.latest_pressure_grade }}</span>
+    </div>
+    <div class="detail-item">
+      <span class="label">Series Reason</span>
+      <strong>{{ detail.series.series_reason or '-' }}</strong>
+    </div>
+    <div class="detail-item">
+      <span class="label">Series Gap Rule</span>
+      <strong>{{ detail.series.series_gap_rule_seconds or '-' }}s</strong>
+    </div>
+    <div class="detail-item">
+      <span class="label">Continuity Block Rule</span>
+      <strong>{{ detail.series.block_continuity_rule_seconds or '-' }}s</strong>
     </div>
     <div class="detail-item">
       <span class="label">Status</span>

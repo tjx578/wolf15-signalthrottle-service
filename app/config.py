@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     min_radar_minutes: float = 5.0
     min_strong_minutes: float = 14.0
     max_event_gap_seconds: int = 300
+    max_continuity_gap_seconds: int = 90
     soft_finalize_seconds: int = 90
     hard_finalize_seconds: int = 300
 

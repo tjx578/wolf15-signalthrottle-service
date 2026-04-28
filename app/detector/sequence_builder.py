@@ -59,6 +59,37 @@ def build_canonical_sequences(
     return sequences
 
 
+def split_sequence_by_continuity_gap(
+    events: list[LogEvent],
+    max_gap_seconds: int,
+) -> list[list[LogEvent]]:
+    """Split a same-symbol canonical sequence into continuity-valid sub-blocks.
+
+    This is intentionally stricter than canonical sequence formation. A gap that
+    exceeds the continuity threshold starts a new pressure block, but the blocks
+    can still belong to the same higher-level pressure series as long as the
+    outer canonical sequence remains intact.
+    """
+    if not events:
+        return []
+
+    events_sorted = sorted(events, key=lambda e: e.timestamp_utc)
+    blocks: list[list[LogEvent]] = []
+    current: list[LogEvent] = [events_sorted[0]]
+
+    for event in events_sorted[1:]:
+        prev = current[-1]
+        gap = (event.timestamp_utc - prev.timestamp_utc).total_seconds()
+        if gap <= max_gap_seconds:
+            current.append(event)
+        else:
+            blocks.append(current)
+            current = [event]
+
+    blocks.append(current)
+    return blocks
+
+
 def make_block_hash(events: list[LogEvent]) -> str:
     """Stable canonical identity for a sequence of events.
 

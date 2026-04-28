@@ -39,6 +39,7 @@ async def run_migrations() -> list[dict]:
         _migration_009_backfill_signal_outcomes_h4_context_type,
         _migration_010_cleanup_duplicate_replay_pressure_blocks,
         _migration_011_cleanup_overlapping_replay_pressure_blocks,
+        _migration_012_ensure_pressure_series_reason_columns,
     ]
     results: list[dict] = []
     for m in migrations:
@@ -613,3 +614,9 @@ async def _migration_011_cleanup_overlapping_replay_pressure_blocks() -> None:
         )
 
     logger.info("migration_011: overlapping replay pressure_blocks cleaned up conservatively")
+
+
+async def _migration_012_ensure_pressure_series_reason_columns() -> None:
+    await _ensure_column("pressure_series", "best_valid_block_grade", "TEXT")
+    await _ensure_column("pressure_series", "series_reason", "TEXT")
+    logger.info("migration_012: pressure_series reason columns ensured")

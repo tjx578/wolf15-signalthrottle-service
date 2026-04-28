@@ -91,6 +91,8 @@ CREATE TABLE IF NOT EXISTS signalthrottle.pressure_series (
 
     latest_pressure_grade TEXT,
     best_pressure_grade TEXT,
+    best_valid_block_grade TEXT,
+    series_reason TEXT,
     pressure_status TEXT,
     finalize_mode TEXT,
     is_active BOOLEAN DEFAULT FALSE,

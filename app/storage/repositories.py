@@ -395,6 +395,9 @@ class SignalRepository:
             if gap_seconds > max_event_gap_seconds:
                 await self.mark_block_hard_finalized(existing["id"])
                 existing = None
+            elif gap_seconds > settings.max_continuity_gap_seconds:
+                await self.mark_block_continuity_split(existing["id"])
+                existing = None
             else:
                 start_utc = existing["start_utc"]
 
@@ -435,6 +438,24 @@ class SignalRepository:
             finalize_mode=None,
             last_event_utc=event.timestamp_utc,
         )
+
+    async def mark_block_continuity_split(self, block_id: int) -> None:
+        async with get_cursor() as cur:
+            await cur.execute(
+                """
+                UPDATE pressure_blocks
+                SET is_active = FALSE,
+                    pressure_status = 'SOFT_FINALIZED',
+                    finalize_mode = 'CONTINUITY_SPLIT',
+                    updated_at = NOW()
+                WHERE id = %s
+                RETURNING symbol
+                """,
+                (block_id,),
+            )
+            row = await cur.fetchone()
+        if row:
+            await self.refresh_pressure_series(symbol=row["symbol"])
 
     async def finalize_block(self, block_id: int, finalize_mode: str) -> None:
         async with get_cursor() as cur:
@@ -636,6 +657,8 @@ class SignalRepository:
                         latest_trade_plan_id,
                         latest_pressure_grade,
                         best_pressure_grade,
+                        best_valid_block_grade,
+                        series_reason,
                         pressure_status,
                         finalize_mode,
                         is_active,
@@ -650,7 +673,7 @@ class SignalRepository:
                             ORDER BY created_at DESC
                             LIMIT 1
                         ),
-                        %s, %s, %s, %s, %s, NOW()
+                        %s, %s, %s, %s, %s, %s, %s, NOW()
                     )
                     """,
                     (
@@ -667,6 +690,8 @@ class SignalRepository:
                         series["latest_block_id"],
                         series["latest_pressure_grade"],
                         series["best_pressure_grade"],
+                        series["best_valid_block_grade"],
+                        series["series_reason"],
                         series["pressure_status"],
                         series["finalize_mode"],
                         series["is_active"],
@@ -699,7 +724,8 @@ class SignalRepository:
                     """,
                     (limit,),
                 )
-            return await cur.fetchall()
+            rows = await cur.fetchall()
+            return [_with_series_metadata(row) for row in rows]
 
     async def get_signal_series_detail(self, symbol: str) -> dict | None:
         await self.refresh_pressure_series(symbol=symbol)
@@ -773,7 +799,7 @@ class SignalRepository:
             trade_plan = await self.get_trade_plan(series["latest_trade_plan_id"])
 
         return {
-            "series": _with_density_metadata(series),
+            "series": _with_series_metadata(series),
             "latest_snapshot": latest_snapshot,
             "blocks": blocks,
             "trade_plan": trade_plan,
@@ -1633,6 +1659,8 @@ def _select_latest_series_signal_rows(
                 "latest_block_id": latest_block_id,
                 "latest_pressure_grade": series["latest_pressure_grade"],
                 "best_pressure_grade": series["best_pressure_grade"],
+                "best_valid_block_grade": series.get("best_valid_block_grade"),
+                "series_reason": series.get("series_reason"),
             }
         )
         series_rows.append(representative)
@@ -1739,6 +1767,12 @@ def _merge_pressure_series(
                 current.get("best_pressure_grade"),
                 row.get("pressure_grade"),
             )
+            current["best_valid_block_grade"] = _better_valid_pressure_grade(
+                current.get("best_valid_block_grade"),
+                row.get("pressure_grade"),
+            )
+            if row.get("finalize_mode") == "CONTINUITY_SPLIT":
+                current["series_reason"] = "SPLIT_BY_CONTINUITY_GAP"
             continue
 
         merged.append(_finalize_pressure_series(current))
@@ -1754,6 +1788,7 @@ def _merge_pressure_series(
 
 
 def _init_pressure_series(row: dict, block_id: Any) -> dict[str, Any]:
+    pressure_grade = row.get("pressure_grade")
     return {
         "symbol": row.get("symbol"),
         "start_utc": row.get("start_utc"),
@@ -1763,8 +1798,14 @@ def _init_pressure_series(row: dict, block_id: Any) -> dict[str, Any]:
         "block_count": 1,
         "block_ids": [block_id],
         "latest_block_id": block_id,
-        "latest_pressure_grade": row.get("pressure_grade"),
-        "best_pressure_grade": row.get("pressure_grade"),
+        "latest_pressure_grade": pressure_grade,
+        "best_pressure_grade": pressure_grade,
+        "best_valid_block_grade": pressure_grade if _is_valid_pressure_grade(pressure_grade) else None,
+        "series_reason": (
+            "SPLIT_BY_CONTINUITY_GAP"
+            if row.get("finalize_mode") == "CONTINUITY_SPLIT"
+            else "CONTINUOUS_PRESSURE_SERIES"
+        ),
         "pressure_status": row.get("pressure_status"),
         "finalize_mode": row.get("finalize_mode"),
         "is_active": row.get("is_active"),
@@ -1803,6 +1844,11 @@ def _is_replay_overlap_duplicate(row: dict, candidate: dict) -> bool:
     candidate_start = candidate.get("start_utc")
     candidate_end = candidate.get("end_utc")
     if not all((row_start, row_end, candidate_start, candidate_end)):
+        return False
+    if not all(
+        isinstance(value, datetime)
+        for value in (row_start, row_end, candidate_start, candidate_end)
+    ):
         return False
 
     overlap_start = max(row_start, candidate_start)
@@ -1898,6 +1944,8 @@ def _finalize_pressure_series(series: dict[str, Any]) -> dict[str, Any]:
         "latest_block_id": series["latest_block_id"],
         "latest_pressure_grade": series["latest_pressure_grade"],
         "best_pressure_grade": series["best_pressure_grade"],
+        "best_valid_block_grade": series.get("best_valid_block_grade"),
+        "series_reason": series.get("series_reason") or "CONTINUOUS_PRESSURE_SERIES",
         "pressure_status": series["pressure_status"],
         "finalize_mode": series["finalize_mode"],
         "is_active": series["is_active"],
@@ -1918,6 +1966,13 @@ def _with_density_metadata(row: dict[str, Any]) -> dict[str, Any]:
         duration_minutes=row.get("duration_minutes"),
         max_gap_seconds=row.get("max_gap_seconds"),
     )
+    return out
+
+
+def _with_series_metadata(row: dict[str, Any]) -> dict[str, Any]:
+    out = _with_density_metadata(row)
+    out["series_gap_rule_seconds"] = settings.max_event_gap_seconds
+    out["block_continuity_rule_seconds"] = settings.max_continuity_gap_seconds
     return out
 
 
@@ -1977,6 +2032,18 @@ def _better_pressure_grade(current: Any, candidate: Any) -> Any:
     if candidate_rank >= current_rank:
         return candidate
     return current
+
+
+def _is_valid_pressure_grade(pressure_grade: Any) -> bool:
+    return pressure_grade in {"B+", "A-", "A", "A+"}
+
+
+def _better_valid_pressure_grade(current: Any, candidate: Any) -> Any:
+    if not _is_valid_pressure_grade(candidate):
+        return current
+    if not _is_valid_pressure_grade(current):
+        return candidate
+    return _better_pressure_grade(current, candidate)
 
 
 def _json_or_none(obj: Any) -> str | None:

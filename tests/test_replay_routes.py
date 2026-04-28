@@ -180,7 +180,7 @@ def test_replay_logs_accepts_structured_json_lines(monkeypatch) -> None:
     replay_payload = replay_response.json()
     assert replay_payload["status"] == "processed"
     assert replay_payload["events_parsed"] == 2
-    assert replay_payload["canonical_blocks_detected"] == 1
+    assert replay_payload["canonical_blocks_detected"] == 2
     assert replay_payload["blocks"][0]["symbol"] == "GBPUSD"
 
 def test_replay_logs_is_idempotent_at_block_level(monkeypatch) -> None:
@@ -222,3 +222,51 @@ def test_replay_logs_is_idempotent_at_block_level(monkeypatch) -> None:
     # All second-pass blocks should report the unchanged action.
     actions = {b.get("action") for b in second["blocks"]}
     assert actions == {"unchanged"}
+
+
+def test_replay_logs_splits_continuity_gap_into_two_blocks_same_family(monkeypatch) -> None:
+    FakeSignalRepository.reset()
+    monkeypatch.setattr(lifecycle, "init_db", _noop)
+    monkeypatch.setattr(lifecycle, "run_migrations", _noop)
+    monkeypatch.setattr(lifecycle, "close_db", _noop)
+    monkeypatch.setattr(routes_replay, "SignalRepository", FakeSignalRepository)
+    monkeypatch.setattr(routes_signals, "SignalRepository", FakeSignalRepository)
+    monkeypatch.setattr(
+        routes_replay,
+        "enrich_block_with_market_context",
+        fake_enrich_block_with_market_context,
+    )
+    monkeypatch.setattr(routes_replay.settings, "max_continuity_gap_seconds", 90)
+
+    first_run = [
+        f"2026-04-22T13:00:{second:02d}Z [SignalThrottle] NZDCHF THROTTLED — 3 signals in last 300s (max 3)"
+        for second in (0, 10, 20, 30, 40, 50)
+    ]
+    second_run = [
+        f"2026-04-22T13:{minute:02d}:{second:02d}Z [SignalThrottle] NZDCHF THROTTLED — 3 signals in last 300s (max 3)"
+        for minute, second in [
+            (3, 30), (3, 40), (3, 50),
+            (4, 0), (4, 10), (4, 20),
+            (4, 30), (4, 40), (4, 50),
+            (5, 0), (5, 10), (5, 20),
+            (5, 30), (5, 40), (5, 50),
+            (6, 0), (6, 10), (6, 20),
+            (6, 30), (6, 40), (6, 50),
+            (7, 0), (7, 10), (7, 20),
+            (7, 30), (7, 40), (7, 50),
+            (8, 0), (8, 10), (8, 20),
+            (8, 30),
+        ]
+    ]
+    logs = "\n".join(first_run + second_run)
+
+    app = create_app()
+    client = TestClient(app)
+    replay_response = client.post("/replay/logs", json={"logs": logs})
+
+    assert replay_response.status_code == 200
+    replay_payload = replay_response.json()
+    assert replay_payload["status"] == "processed"
+    assert replay_payload["canonical_blocks_detected"] == 2
+    grades = [block["pressure_grade"] for block in replay_payload["blocks"]]
+    assert grades == ["FAILED_MIN_DURATION", "B+"]

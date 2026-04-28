@@ -175,6 +175,152 @@ def test_merge_pressure_series_keeps_separate_series_after_hard_gap() -> None:
     assert {row["latest_block_id"] for row in merged} == {20, 21}
 
 
+def test_merge_pressure_series_keeps_continuity_split_blocks_in_one_series() -> None:
+    rows = [
+        {
+            "id": 30,
+            "symbol": "NZDCHF",
+            "start_utc": datetime(2026, 4, 22, 13, 0, 28, tzinfo=timezone.utc),
+            "end_utc": datetime(2026, 4, 22, 13, 2, 2, tzinfo=timezone.utc),
+            "event_count": 19,
+            "max_gap_seconds": 7.2,
+            "pressure_grade": "FAILED_MIN_DURATION",
+            "pressure_status": "SOFT_FINALIZED",
+            "finalize_mode": "CONTINUITY_SPLIT",
+            "is_active": False,
+        },
+        {
+            "id": 31,
+            "symbol": "NZDCHF",
+            "start_utc": datetime(2026, 4, 22, 13, 6, 27, tzinfo=timezone.utc),
+            "end_utc": datetime(2026, 4, 22, 13, 14, 3, tzinfo=timezone.utc),
+            "event_count": 85,
+            "max_gap_seconds": 21.73,
+            "pressure_grade": "B+",
+            "pressure_status": "SOFT_FINALIZED",
+            "finalize_mode": "SOFT_FINALIZED",
+            "is_active": False,
+        },
+    ]
+
+    merged = _merge_pressure_series(rows, merge_gap_seconds=300)
+
+    assert len(merged) == 1
+    assert merged[0]["block_count"] == 2
+    assert merged[0]["latest_block_id"] == 31
+    assert merged[0]["best_pressure_grade"] == "B+"
+    assert merged[0]["best_valid_block_grade"] == "B+"
+    assert merged[0]["series_reason"] == "SPLIT_BY_CONTINUITY_GAP"
+
+
+def test_merge_pressure_series_best_valid_block_grade_ignores_failed_blocks() -> None:
+    rows = [
+        {
+            "id": 30,
+            "symbol": "NZDCHF",
+            "start_utc": datetime(2026, 4, 22, 13, 0, 28, tzinfo=timezone.utc),
+            "end_utc": datetime(2026, 4, 22, 13, 2, 2, tzinfo=timezone.utc),
+            "event_count": 19,
+            "max_gap_seconds": 7.2,
+            "pressure_grade": "FAILED_MIN_DURATION",
+            "pressure_status": "SOFT_FINALIZED",
+            "finalize_mode": "CONTINUITY_SPLIT",
+            "is_active": False,
+        },
+        {
+            "id": 31,
+            "symbol": "NZDCHF",
+            "start_utc": datetime(2026, 4, 22, 13, 6, 27, tzinfo=timezone.utc),
+            "end_utc": datetime(2026, 4, 22, 13, 14, 3, tzinfo=timezone.utc),
+            "event_count": 85,
+            "max_gap_seconds": 21.73,
+            "pressure_grade": "B+",
+            "pressure_status": "SOFT_FINALIZED",
+            "finalize_mode": "SOFT_FINALIZED",
+            "is_active": False,
+        },
+    ]
+
+    merged = _merge_pressure_series(rows, merge_gap_seconds=300)
+
+    assert len(merged) == 1
+    assert merged[0]["best_pressure_grade"] == "B+"
+    assert merged[0]["best_valid_block_grade"] == "B+"
+
+
+def test_upsert_live_block_from_event_splits_on_continuity_gap_but_not_hard_gap(monkeypatch) -> None:
+    class FakeRepo:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, object]] = []
+
+        async def finalize_other_active_blocks_on_pair_replacement(self, symbol: str) -> None:
+            self.calls.append(("pair_replacement", symbol))
+
+        async def get_active_block(self, symbol: str) -> dict | None:
+            return {
+                "id": 10,
+                "symbol": symbol,
+                "start_utc": datetime(2026, 4, 22, 13, 0, 28, tzinfo=timezone.utc),
+                "end_utc": datetime(2026, 4, 22, 13, 2, 2, tzinfo=timezone.utc),
+                "previous_block_id": 7,
+            }
+
+        async def mark_block_hard_finalized(self, block_id: int) -> None:
+            self.calls.append(("hard_finalize", block_id))
+
+        async def mark_block_continuity_split(self, block_id: int) -> None:
+            self.calls.append(("continuity_split", block_id))
+
+        async def get_last_finalized_block(self, symbol: str) -> dict | None:
+            return {"id": 10}
+
+        async def get_signal_events_in_range(self, symbol: str, start_utc: datetime, end_utc: datetime):
+            return [
+                repositories_module.LogEvent(
+                    symbol=symbol,
+                    event_type="SIGNAL_THROTTLE",
+                    timestamp_utc=start_utc,
+                    raw_message="start",
+                ),
+                repositories_module.LogEvent(
+                    symbol=symbol,
+                    event_type="SIGNAL_THROTTLE",
+                    timestamp_utc=end_utc,
+                    raw_message="end",
+                ),
+            ]
+
+        async def upsert_active_block(self, **kwargs) -> dict:
+            self.calls.append(("upsert_active_block", kwargs))
+            return {"id": 11, "action": "created"}
+
+    fake_repo = FakeRepo()
+    event = repositories_module.LogEvent(
+        symbol="NZDCHF",
+        event_type="SIGNAL_THROTTLE",
+        timestamp_utc=datetime(2026, 4, 22, 13, 6, 27, tzinfo=timezone.utc),
+        raw_message="test",
+    )
+
+    monkeypatch.setattr(repositories_module.settings, "max_continuity_gap_seconds", 90)
+
+    result = asyncio.run(
+        SignalRepository.upsert_live_block_from_event(
+            fake_repo,
+            event,
+            max_event_gap_seconds=300,
+            chart_offset_hours=3,
+        )
+    )
+
+    assert result == {"id": 11, "action": "created"}
+    assert ("continuity_split", 10) in fake_repo.calls
+    assert not any(call[0] == "hard_finalize" for call in fake_repo.calls)
+    upsert_call = next(call for call in fake_repo.calls if call[0] == "upsert_active_block")
+    assert upsert_call[1]["start_utc"] == event.timestamp_utc
+    assert upsert_call[1]["previous_block_id"] == 10
+
+
 def test_merge_pressure_series_dedupes_identical_replay_rows_and_preserves_max_event_count() -> None:
     rows = [
         {
