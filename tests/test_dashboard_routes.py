@@ -387,6 +387,7 @@ def test_dashboard_watchlist_renders_pending_pressure_without_trade_plan(monkeyp
     assert response.status_code == 200
     assert "Radar / Below Threshold" in response.text
     assert "Watchlist / Trade Plan Pending" in response.text
+    assert "/engine-logs/daily" in response.text
     assert "Trade Plan Ready" in response.text
     assert "GBPUSD" in response.text
     assert "watchlist_trade_plan_pending" in response.text
