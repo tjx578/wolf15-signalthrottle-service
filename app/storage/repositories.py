@@ -1756,6 +1756,8 @@ def _merge_pressure_series(
                 current["block_count"] += 1
                 current["block_ids"].append(block_id)
                 current["event_count"] += int(row.get("event_count") or 0)
+                if gap_seconds > settings.max_continuity_gap_seconds:
+                    current["series_reason"] = "SPLIT_BY_CONTINUITY_GAP"
             if end_utc >= current["latest_end_utc"]:
                 current["latest_end_utc"] = end_utc
                 current["latest_block_id"] = block_id

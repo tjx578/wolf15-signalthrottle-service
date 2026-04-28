@@ -248,6 +248,42 @@ def test_merge_pressure_series_best_valid_block_grade_ignores_failed_blocks() ->
     assert merged[0]["best_valid_block_grade"] == "B+"
 
 
+def test_merge_pressure_series_marks_replay_gap_family_as_continuity_split() -> None:
+    rows = [
+        {
+            "id": 32,
+            "symbol": "NZDCHF",
+            "start_utc": datetime(2026, 4, 22, 13, 0, 0, tzinfo=timezone.utc),
+            "end_utc": datetime(2026, 4, 22, 13, 0, 50, tzinfo=timezone.utc),
+            "event_count": 6,
+            "max_gap_seconds": 10.0,
+            "pressure_grade": "FAILED_MIN_DURATION",
+            "pressure_status": "REPLAY",
+            "finalize_mode": "REPLAY_FINALIZE",
+            "is_active": False,
+        },
+        {
+            "id": 33,
+            "symbol": "NZDCHF",
+            "start_utc": datetime(2026, 4, 22, 13, 3, 30, tzinfo=timezone.utc),
+            "end_utc": datetime(2026, 4, 22, 13, 8, 30, tzinfo=timezone.utc),
+            "event_count": 31,
+            "max_gap_seconds": 10.0,
+            "pressure_grade": "B+",
+            "pressure_status": "REPLAY",
+            "finalize_mode": "REPLAY_FINALIZE",
+            "is_active": False,
+        },
+    ]
+
+    merged = _merge_pressure_series(rows, merge_gap_seconds=300)
+
+    assert len(merged) == 1
+    assert merged[0]["block_count"] == 2
+    assert merged[0]["best_valid_block_grade"] == "B+"
+    assert merged[0]["series_reason"] == "SPLIT_BY_CONTINUITY_GAP"
+
+
 def test_upsert_live_block_from_event_splits_on_continuity_gap_but_not_hard_gap(monkeypatch) -> None:
     class FakeRepo:
         def __init__(self) -> None:
