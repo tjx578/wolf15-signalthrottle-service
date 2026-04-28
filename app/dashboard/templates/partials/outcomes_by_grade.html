@@ -1,4 +1,4 @@
-<section id="outcomes-by-grade" class="panel" hx-get="/partials/outcomes_by_grade" hx-trigger="every 60s" hx-swap="outerHTML">
+<section id="outcomes-by-grade" class="panel" data-refresh-when-visible="true" hx-get="/partials/outcomes_by_grade" hx-trigger="every 120s" hx-swap="outerHTML">
   <h2>Performance by Grade</h2>
   {% if section_error %}
   <p class="section-status"><strong>Section degraded:</strong> {{ section_error.message }}</p>

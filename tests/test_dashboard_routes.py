@@ -408,6 +408,8 @@ def test_dashboard_watchlist_renders_pending_pressure_without_trade_plan(monkeyp
     assert 'hx-get="/partials/stats"' in response.text
     assert 'hx-get="/partials/watchlist_signals"' in response.text
     assert 'hx-get="/partials/latest_outcomes"' in response.text
+    assert 'hx-trigger="every 120s"' in response.text
+    assert 'data-refresh-when-visible="true"' in response.text
     assert 'data-auto-refresh-seconds="30"' not in response.text
     assert 'Dashboard</span>' in response.text
     assert 'Engine Logs</span>' in response.text
@@ -547,6 +549,7 @@ def test_dashboard_partial_section_renders_fragment(monkeypatch) -> None:
     assert "Watchlist / Trade Plan Pending" in response.text
     assert "GBPUSD" in response.text
     assert 'hx-get="/partials/watchlist_signals"' in response.text
+    assert 'data-refresh-when-visible="true"' not in response.text
     assert "Replay Logs" not in response.text
 
 
@@ -565,6 +568,8 @@ def test_dashboard_partial_section_surfaces_local_error(monkeypatch) -> None:
     assert "Section degraded" in response.text
     assert "signal_outcomes table missing" in response.text
     assert "No outcome data yet" in response.text
+    assert 'hx-trigger="every 120s"' in response.text
+    assert 'data-refresh-when-visible="true"' in response.text
 
 
 def test_engine_logs_daily_partial_renders_fragment(monkeypatch) -> None:
