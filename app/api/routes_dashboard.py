@@ -121,9 +121,9 @@ async def dashboard_home(request: Request):
     ready_trade_plans = [_dashboard_signal_contract(row) for row in ready_trade_plans]
 
     return templates.TemplateResponse(
+        request,
         "index.html",
         {
-            "request": request,
             "active_blocks": active_blocks,
             "radar_signals": radar_signals,
             "watchlist_signals": watchlist_signals,
@@ -145,9 +145,9 @@ async def signal_detail_page(request: Request, signal_id: int):
     signal = await repo.get_trade_plan(signal_id)
 
     return templates.TemplateResponse(
+        request,
         "signal_detail.html",
         {
-            "request": request,
             "signal": _dashboard_signal_contract(signal),
         },
     )
@@ -159,9 +159,9 @@ async def series_detail_page(request: Request, symbol: str):
     detail = await repo.get_signal_series_detail(symbol)
 
     return templates.TemplateResponse(
+        request,
         "series_detail.html",
         {
-            "request": request,
             "detail": detail,
             "symbol": symbol,
         },
@@ -181,9 +181,9 @@ async def engine_logs_daily_page(request: Request, date: str | None = None):
     summary = await repo.get_engine_logs_daily_summary(start_utc=start_utc, end_utc=end_utc)
 
     return templates.TemplateResponse(
+        request,
         "engine_logs_daily.html",
         {
-            "request": request,
             "summary": summary,
             "selected_date": date or owner_now.date().isoformat(),
             "window": {
