@@ -4,9 +4,10 @@ import logging
 import re
 from datetime import datetime
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
+from .auth import require_dashboard_auth
 from ..config import settings
 from ..detector.sequence_builder import (
     build_canonical_sequences,
@@ -35,7 +36,10 @@ class ReplayPayload(BaseModel):
 
 
 @router.post("/logs")
-async def replay_logs(payload: ReplayPayload):
+async def replay_logs(
+    payload: ReplayPayload,
+    _: None = Depends(require_dashboard_auth),
+):
     """Parse raw log text, detect blocks, compute grades, store results."""
     lines = payload.logs.strip().splitlines()
     events: list[LogEvent] = []

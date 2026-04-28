@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from app.api.auth import require_dashboard_auth
 from app.config import settings
 from app.ingestion.engine_log_sync import (
     explain_sync_status,
@@ -18,7 +19,10 @@ router = APIRouter()
 
 
 @router.post("/run-migrations")
-async def debug_run_migrations(include_schema: bool = False) -> dict:
+async def debug_run_migrations(
+    include_schema: bool = False,
+    _: None = Depends(require_dashboard_auth),
+) -> dict:
     """Manually re-run migrations (and optionally schema.sql).
 
     By default we only run migrations because schema.sql contains CREATE INDEX

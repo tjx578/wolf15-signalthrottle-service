@@ -38,6 +38,26 @@ class FakeSignalRepository:
 
     async def get_latest_signals(self, limit: int = 50, bucket: str = "watchlist") -> list[dict]:
         data = {
+            "failed": [
+                {
+                    "id": None,
+                    "trade_plan_id": None,
+                    "block_id": 7,
+                    "symbol": "NZDCHF",
+                    "pressure_grade": "FAILED_MIN_DURATION",
+                    "execution_grade": None,
+                    "chart_phase": None,
+                    "action": None,
+                    "duration_minutes": 3.1,
+                    "event_count": 11,
+                    "density_per_minute": 3.55,
+                    "density_state": "LOW_DENSITY",
+                    "reason_code": "FAILED_MIN_DURATION",
+                    "dashboard_bucket": "failed_minimum",
+                    "display_message": "NZDCHF pressure failed minimum-duration gating and is shown for observability only.",
+                    "signal_end_wita": "2026-04-27 15:10:03",
+                }
+            ],
             "radar": [
                 {
                     "id": None,
@@ -386,10 +406,13 @@ def test_dashboard_watchlist_renders_pending_pressure_without_trade_plan(monkeyp
 
     assert response.status_code == 200
     assert "Radar / Below Threshold" in response.text
+    assert "Failed / Below Minimum" in response.text
     assert "Watchlist / Trade Plan Pending" in response.text
     assert "/engine-logs/daily" in response.text
     assert "Trade Plan Ready" in response.text
     assert "GBPUSD" in response.text
+    assert "NZDCHF" in response.text
+    assert "FAILED_MIN_DURATION" in response.text
     assert "watchlist_trade_plan_pending" in response.text
     assert "PENDING" in response.text
     assert "TRADE_PLAN_REQUIRED" in response.text
@@ -508,9 +531,29 @@ def test_dashboard_keeps_signals_when_outcome_queries_fail(monkeypatch) -> None:
     response = client.get("/")
 
     assert response.status_code == 200
+    assert "Dashboard Degraded" in response.text
+    assert "signal_outcomes table missing" in response.text
     assert "GBPUSD" in response.text
     assert "watchlist_trade_plan_pending" in response.text
     assert "No outcome data yet" in response.text
     assert "No H4 context outcome data yet" in response.text
     assert "No reason-code outcome data yet" in response.text
     assert "Best H4 Context" in response.text
+
+
+def test_dashboard_requires_basic_auth_when_configured(monkeypatch) -> None:
+    monkeypatch.setattr(lifecycle, "init_db", _noop)
+    monkeypatch.setattr(lifecycle, "run_migrations", _noop)
+    monkeypatch.setattr(lifecycle, "close_db", _noop)
+    monkeypatch.setattr(routes_dashboard, "SignalRepository", FakeSignalRepository)
+    monkeypatch.setattr(routes_dashboard.settings, "dashboard_basic_auth_user", "owner")
+    monkeypatch.setattr(routes_dashboard.settings, "dashboard_basic_auth_password", "secret")
+
+    app = create_app()
+    client = TestClient(app)
+
+    unauthorized = client.get("/")
+    authorized = client.get("/", auth=("owner", "secret"))
+
+    assert unauthorized.status_code == 401
+    assert authorized.status_code == 200

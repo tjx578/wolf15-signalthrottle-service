@@ -1,6 +1,18 @@
 {% extends "base.html" %}
 
 {% block content %}
+{% if section_errors %}
+<section class="panel">
+  <h2>Dashboard Degraded</h2>
+  <p>Some sections failed to load. Empty widgets below may reflect query or contract issues, not an actual absence of signals.</p>
+  <ul>
+    {% for err in section_errors %}
+    <li><strong>{{ err.section }}</strong>: {{ err.message }}</li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
 <section class="grid">
   <div class="card">
     <span class="label">Active Blocks</span>
@@ -93,6 +105,42 @@
   </div>
   {% else %}
   <p class="empty">No radar signals yet</p>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <h2>Failed / Below Minimum</h2>
+  {% if failed_signals %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Symbol</th>
+          <th>Pressure</th>
+          <th>Reason</th>
+          <th>Duration (m)</th>
+          <th>Events</th>
+          <th>Rationale</th>
+          <th>End WITA</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in failed_signals %}
+        <tr>
+          <td class="symbol"><a href="/series-detail/{{ s.symbol }}">{{ s.symbol }}</a></td>
+          <td><span class="badge">{{ s.pressure_grade or '-' }}</span></td>
+          <td>{{ s.reason_code or '-' }}</td>
+          <td>{{ s.duration_minutes if s.duration_minutes is not none else '-' }}</td>
+          <td>{{ s.event_count if s.event_count is not none else '-' }}</td>
+          <td>{{ s.display_message or s.message or '-' }}</td>
+          <td>{{ s.signal_end_wita or '-' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No failed or below-minimum signals</p>
   {% endif %}
 </section>
 

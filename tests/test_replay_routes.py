@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 import app.api.routes_replay as routes_replay
 import app.api.routes_signals as routes_signals
 import app.lifecycle as lifecycle
+import app.main as main_module
 from app.main import create_app
 
 
@@ -270,3 +271,26 @@ def test_replay_logs_splits_continuity_gap_into_two_blocks_same_family(monkeypat
     assert replay_payload["canonical_blocks_detected"] == 2
     grades = [block["pressure_grade"] for block in replay_payload["blocks"]]
     assert grades == ["FAILED_MIN_DURATION", "B+"]
+
+
+def test_replay_logs_requires_basic_auth_when_configured(monkeypatch) -> None:
+    FakeSignalRepository.reset()
+    monkeypatch.setattr(lifecycle, "init_db", _noop)
+    monkeypatch.setattr(lifecycle, "run_migrations", _noop)
+    monkeypatch.setattr(lifecycle, "close_db", _noop)
+    monkeypatch.setattr(routes_replay, "SignalRepository", FakeSignalRepository)
+    monkeypatch.setattr(routes_signals, "SignalRepository", FakeSignalRepository)
+    monkeypatch.setattr(routes_replay.settings, "dashboard_basic_auth_user", "owner")
+    monkeypatch.setattr(routes_replay.settings, "dashboard_basic_auth_password", "secret")
+    monkeypatch.setattr(main_module.dashboard_router.dependencies[0].dependency.__globals__["settings"], "dashboard_basic_auth_user", "owner")
+    monkeypatch.setattr(main_module.dashboard_router.dependencies[0].dependency.__globals__["settings"], "dashboard_basic_auth_password", "secret")
+
+    app = create_app()
+    client = TestClient(app)
+    logs = Path("tests/fixtures/usdjpy_bplus_replay.log").read_text(encoding="utf-8")
+
+    unauthorized = client.post("/replay/logs", json={"logs": logs})
+    authorized = client.post("/replay/logs", json={"logs": logs}, auth=("owner", "secret"))
+
+    assert unauthorized.status_code == 401
+    assert authorized.status_code == 200

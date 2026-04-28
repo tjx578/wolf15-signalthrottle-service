@@ -117,3 +117,25 @@ def test_debug_schema_endpoint_reports_drift(monkeypatch) -> None:
     assert payload["pressure_blocks"]["trade_plan_status"] is False
     assert payload["missing_columns"] == ["block_hash", "trade_plan_status"]
     assert payload["missing_indexes"] == ["uq_st_pressure_blocks_block_hash"]
+
+
+def test_debug_run_migrations_requires_basic_auth_when_configured(monkeypatch) -> None:
+    monkeypatch.setattr(lifecycle, "init_db", _noop)
+    monkeypatch.setattr(lifecycle, "run_migrations", _noop)
+    monkeypatch.setattr(lifecycle, "close_db", _noop)
+    monkeypatch.setattr(routes_debug.settings, "dashboard_basic_auth_user", "owner")
+    monkeypatch.setattr(routes_debug.settings, "dashboard_basic_auth_password", "secret")
+
+    async def _fake_run_migrations() -> list[dict]:
+        return [{"status": "ok"}]
+
+    monkeypatch.setattr(routes_debug, "run_migrations", _fake_run_migrations)
+
+    app = create_app()
+    client = TestClient(app)
+
+    unauthorized = client.post("/debug/run-migrations")
+    authorized = client.post("/debug/run-migrations", auth=("owner", "secret"))
+
+    assert unauthorized.status_code == 401
+    assert authorized.status_code == 200
