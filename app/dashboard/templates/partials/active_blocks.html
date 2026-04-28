@@ -1,0 +1,38 @@
+<section id="active-pressure" class="panel" hx-get="/partials/active_blocks" hx-trigger="every 30s" hx-swap="outerHTML">
+  <h2>Active Pressure</h2>
+  {% if section_error %}
+  <p class="section-status"><strong>Section degraded:</strong> {{ section_error.message }}</p>
+  {% endif %}
+  {% if active_blocks %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Symbol</th>
+          <th>Duration (m)</th>
+          <th>Events</th>
+          <th>Density/m</th>
+          <th>Max Gap (s)</th>
+          <th>Grade</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for b in active_blocks %}
+        <tr>
+          <td class="symbol">{{ b.symbol }}</td>
+          <td>{{ b.duration_minutes }}</td>
+          <td>{{ b.event_count }}</td>
+          <td>{{ b.density_per_minute }}</td>
+          <td>{{ b.max_gap_seconds or '-' }}</td>
+          <td><span class="badge badge-{{ b.pressure_grade | lower | replace('+','p') }}">{{ b.pressure_grade }}</span></td>
+          <td>{{ b.finalize_mode or 'ACTIVE' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No active pressure blocks</p>
+  {% endif %}
+</section>

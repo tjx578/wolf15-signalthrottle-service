@@ -1,0 +1,42 @@
+<section id="radar-signals" class="panel" hx-get="/partials/radar_signals" hx-trigger="every 30s" hx-swap="outerHTML">
+  <h2>Radar / Below Threshold</h2>
+  {% if section_error %}
+  <p class="section-status"><strong>Section degraded:</strong> {{ section_error.message }}</p>
+  {% endif %}
+  {% if radar_signals %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Symbol</th>
+          <th>Pressure</th>
+          <th>H4</th>
+          <th>Reason</th>
+          <th>Duration (m)</th>
+          <th>Events</th>
+          <th>Rationale</th>
+          <th>Bucket</th>
+          <th>End WITA</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in radar_signals %}
+        <tr>
+          <td class="symbol"><a href="/series-detail/{{ s.symbol }}">{{ s.symbol }}</a></td>
+          <td><span class="badge">{{ s.pressure_grade }}</span></td>
+          <td>{{ s.h4_structure or '-' }}</td>
+          <td>{{ s.reason_code or '-' }}</td>
+          <td>{{ s.duration_minutes }}</td>
+          <td>{{ s.event_count }}</td>
+          <td>{{ s.display_message or s.message or '-' }}</td>
+          <td>{{ s.dashboard_bucket or '-' }}</td>
+          <td>{{ s.signal_end_wita or '-' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No radar signals yet</p>
+  {% endif %}
+</section>

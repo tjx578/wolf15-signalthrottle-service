@@ -1,0 +1,36 @@
+<section id="outcomes-by-grade" class="panel" hx-get="/partials/outcomes_by_grade" hx-trigger="every 60s" hx-swap="outerHTML">
+  <h2>Performance by Grade</h2>
+  {% if section_error %}
+  <p class="section-status"><strong>Section degraded:</strong> {{ section_error.message }}</p>
+  {% endif %}
+  {% if outcomes_by_grade %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Pressure</th>
+          <th>Exec</th>
+          <th>Count</th>
+          <th>Strong %</th>
+          <th>Avg MFE 30m</th>
+          <th>Avg MAE 30m</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in outcomes_by_grade %}
+        <tr>
+          <td><span class="badge">{{ r.pressure_grade or '-' }}</span></td>
+          <td><span class="badge">{{ r.execution_grade or '-' }}</span></td>
+          <td>{{ r.count }}</td>
+          <td>{{ r.strong_pct }}%</td>
+          <td>{{ '%.4f' % r.avg_mfe_30m }}</td>
+          <td>{{ '%.4f' % r.avg_mae_30m }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No outcome data yet</p>
+  {% endif %}
+</section>

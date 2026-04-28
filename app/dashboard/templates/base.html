@@ -13,11 +13,37 @@
       <h1>Wolf15 SignalThrottle</h1>
       <p>Pressure intelligence dashboard</p>
     </div>
-    <nav>
-      <a href="/">Dashboard</a>
-        <a href="/engine-logs/daily">Engine Logs Daily</a>
-      <a href="/health">Health</a>
-      <a href="/docs">API Docs</a>
+    <nav class="nav-groups" aria-label="Owner navigation">
+      <div class="nav-group">
+        <span class="nav-group-label">Dashboard</span>
+        <div class="nav-links">
+          <a href="/">Overview</a>
+          <a href="/#active-pressure">Active</a>
+          <a href="/#trade-plan-ready">Ready</a>
+        </div>
+      </div>
+      <div class="nav-group">
+        <span class="nav-group-label">Engine Logs</span>
+        <div class="nav-links">
+          <a href="/engine-logs/daily">Daily</a>
+          <a href="/#replay-logs">Replay</a>
+        </div>
+      </div>
+      <div class="nav-group">
+        <span class="nav-group-label">Outcomes</span>
+        <div class="nav-links">
+          <a href="/#outcome-summary">Summary</a>
+          <a href="/#latest-outcomes">Latest</a>
+        </div>
+      </div>
+      <div class="nav-group">
+        <span class="nav-group-label">Debug</span>
+        <div class="nav-links">
+          <a href="/debug/sync">Sync</a>
+          <a href="/debug/schema">Schema</a>
+          <a href="/docs">API Docs</a>
+        </div>
+      </div>
     </nav>
   </header>
 

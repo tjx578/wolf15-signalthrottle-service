@@ -1,0 +1,21 @@
+<section id="dashboard-stats" class="grid" hx-get="/partials/stats" hx-trigger="every 30s" hx-swap="outerHTML">
+  {% if section_error %}
+  <p class="section-status"><strong>Section degraded:</strong> {{ section_error.message }}</p>
+  {% endif %}
+  <div class="card">
+    <span class="label">Active Blocks</span>
+    <strong>{{ stats.active_blocks }}</strong>
+  </div>
+  <div class="card">
+    <span class="label">Priority Trade Plans (24h)</span>
+    <strong>{{ stats.priority_signals }}</strong>
+  </div>
+  <div class="card">
+    <span class="label">Avg Density (24h)</span>
+    <strong>{{ stats.avg_density }}</strong>
+  </div>
+  <div class="card">
+    <span class="label">Last Update</span>
+    <strong>{{ stats.last_update }}</strong>
+  </div>
+</section>

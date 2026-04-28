@@ -1,0 +1,40 @@
+<section id="outcome-summary" class="panel" hx-get="/partials/outcome_summary" hx-trigger="every 60s" hx-swap="outerHTML">
+  <h2>Outcome Summary</h2>
+  {% if section_error %}
+  <p class="section-status"><strong>Section degraded:</strong> {{ section_error.message }}</p>
+  {% endif %}
+  <div class="grid">
+    <div class="card">
+      <span class="label">Evaluated</span>
+      <strong>{{ outcome_summary.total }}</strong>
+    </div>
+    <div class="card">
+      <span class="label">Strong Follow-Through %</span>
+      <strong>{{ outcome_summary.strong_pct }}%</strong>
+    </div>
+    <div class="card">
+      <span class="label">Avg MFE 30m</span>
+      <strong>{{ '%.4f' % outcome_summary.avg_mfe_30m }}</strong>
+    </div>
+    <div class="card">
+      <span class="label">Avg MAE 30m</span>
+      <strong>{{ '%.4f' % outcome_summary.avg_mae_30m }}</strong>
+    </div>
+    <div class="card">
+      <span class="label">Best Phase</span>
+      <strong>{{ outcome_summary.best_phase or '-' }}</strong>
+    </div>
+    <div class="card">
+      <span class="label">Worst Phase</span>
+      <strong>{{ outcome_summary.worst_phase or '-' }}</strong>
+    </div>
+    <div class="card">
+      <span class="label">Best H4 Context</span>
+      <strong>{{ outcome_summary.best_h4_context_type or '-' }}</strong>
+    </div>
+    <div class="card">
+      <span class="label">Worst H4 Context</span>
+      <strong>{{ outcome_summary.worst_h4_context_type or '-' }}</strong>
+    </div>
+  </div>
+</section>

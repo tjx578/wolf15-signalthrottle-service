@@ -31,20 +31,3 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 });
-
-document.addEventListener('DOMContentLoaded', () => {
-  const refreshSeconds = Number.parseInt(document.body.dataset.autoRefreshSeconds || '', 10);
-  if (!Number.isFinite(refreshSeconds) || refreshSeconds <= 0) {
-    return;
-  }
-
-  setInterval(() => {
-    if (document.hidden) {
-      return;
-    }
-    if (document.activeElement instanceof HTMLInputElement || document.activeElement instanceof HTMLTextAreaElement) {
-      return;
-    }
-    window.location.reload();
-  }, refreshSeconds * 1000);
-});

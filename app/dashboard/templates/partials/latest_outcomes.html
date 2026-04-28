@@ -1,0 +1,40 @@
+<section id="latest-outcomes" class="panel" hx-get="/partials/latest_outcomes" hx-trigger="every 60s" hx-swap="outerHTML">
+  <h2>Latest Outcomes</h2>
+  {% if section_error %}
+  <p class="section-status"><strong>Section degraded:</strong> {{ section_error.message }}</p>
+  {% endif %}
+  {% if latest_outcomes %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Symbol</th>
+          <th>Phase</th>
+          <th>H4 Context</th>
+          <th>Side</th>
+          <th>Entry</th>
+          <th>MFE 30m</th>
+          <th>MAE 30m</th>
+          <th>Result</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for o in latest_outcomes %}
+        <tr>
+          <td class="symbol">{{ o.symbol }}</td>
+          <td>{{ o.chart_phase or '-' }}</td>
+          <td>{{ o.h4_context_type or '-' }}</td>
+          <td>{{ o.execution_side or '-' }}</td>
+          <td>{{ o.price_at_signal or '-' }}</td>
+          <td>{{ o.mfe_30m if o.mfe_30m is not none else '-' }}</td>
+          <td>{{ o.mae_30m if o.mae_30m is not none else '-' }}</td>
+          <td><span class="badge">{{ o.result_label }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No outcomes recorded yet</p>
+  {% endif %}
+</section>

@@ -1,0 +1,34 @@
+<section id="outcomes-by-phase" class="panel" hx-get="/partials/outcomes_by_phase" hx-trigger="every 60s" hx-swap="outerHTML">
+  <h2>Performance by Phase</h2>
+  {% if section_error %}
+  <p class="section-status"><strong>Section degraded:</strong> {{ section_error.message }}</p>
+  {% endif %}
+  {% if outcomes_by_phase %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Chart Phase</th>
+          <th>Count</th>
+          <th>Strong %</th>
+          <th>Avg MFE 30m</th>
+          <th>Avg MAE 30m</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in outcomes_by_phase %}
+        <tr>
+          <td>{{ r.chart_phase }}</td>
+          <td>{{ r.count }}</td>
+          <td>{{ r.strong_pct }}%</td>
+          <td>{{ '%.4f' % r.avg_mfe_30m }}</td>
+          <td>{{ '%.4f' % r.avg_mae_30m }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No outcome data yet</p>
+  {% endif %}
+</section>

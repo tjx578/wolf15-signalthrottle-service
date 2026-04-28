@@ -405,6 +405,16 @@ def test_dashboard_watchlist_renders_pending_pressure_without_trade_plan(monkeyp
     response = client.get("/")
 
     assert response.status_code == 200
+    assert 'hx-get="/partials/stats"' in response.text
+    assert 'hx-get="/partials/watchlist_signals"' in response.text
+    assert 'hx-get="/partials/latest_outcomes"' in response.text
+    assert 'data-auto-refresh-seconds="30"' not in response.text
+    assert 'Dashboard</span>' in response.text
+    assert 'Engine Logs</span>' in response.text
+    assert 'Outcomes</span>' in response.text
+    assert 'Debug</span>' in response.text
+    assert '/debug/sync' in response.text
+    assert '/debug/schema' in response.text
     assert "Radar / Below Threshold" in response.text
     assert "Failed / Below Minimum" in response.text
     assert "Watchlist / Trade Plan Pending" in response.text
@@ -418,8 +428,6 @@ def test_dashboard_watchlist_renders_pending_pressure_without_trade_plan(monkeyp
     assert "TRADE_PLAN_REQUIRED" in response.text
     assert "H4_BEARISH_MASTER_STRUCTURE" in response.text
     assert "BEARISH_CONTINUATION" in response.text
-    assert 'data-auto-refresh-seconds="30"' in response.text
-    assert 'data-auto-refresh-path="dashboard"' in response.text
     assert "GBPUSD B+ pressure is valid, but H4 bearish master structure blocks bullish continuation promotion." in response.text
     assert "AUDUSD" in response.text
     assert "radar_below_threshold" in response.text
@@ -467,7 +475,7 @@ def test_signal_detail_shows_rationale_summary(monkeypatch) -> None:
     assert "BEARISH_CONTINUATION" in response.text
     assert "/series-detail/GBPUSD" in response.text
     assert "Trade Plan JSON" not in response.text
-    assert 'data-auto-refresh-seconds="30"' not in response.text
+    assert 'hx-get="/partials/stats"' not in response.text
 
 
 def test_series_detail_shows_merged_series_and_raw_blocks(monkeypatch) -> None:
@@ -517,12 +525,63 @@ def test_engine_logs_daily_page_shows_observability_summary(monkeypatch) -> None
 
     assert response.status_code == 200
     assert "Engine Logs Daily" in response.text
-    assert 'data-auto-refresh-seconds="30"' in response.text
-    assert 'data-auto-refresh-path="engine-logs"' in response.text
+    assert 'hx-get="/partials/engine-logs/daily?date=' in response.text
     assert "Raw Extracted Logs" in response.text
     assert "Parsed Signal Events" in response.text
     assert "PARSED_ONLY_NO_PROMOTION" in response.text
     assert "NZDCHF" in response.text
+
+
+def test_dashboard_partial_section_renders_fragment(monkeypatch) -> None:
+    monkeypatch.setattr(lifecycle, "init_db", _noop)
+    monkeypatch.setattr(lifecycle, "run_migrations", _noop)
+    monkeypatch.setattr(lifecycle, "close_db", _noop)
+    monkeypatch.setattr(routes_dashboard, "SignalRepository", FakeSignalRepository)
+
+    app = create_app()
+    client = TestClient(app)
+
+    response = client.get("/partials/watchlist_signals")
+
+    assert response.status_code == 200
+    assert "Watchlist / Trade Plan Pending" in response.text
+    assert "GBPUSD" in response.text
+    assert 'hx-get="/partials/watchlist_signals"' in response.text
+    assert "Replay Logs" not in response.text
+
+
+def test_dashboard_partial_section_surfaces_local_error(monkeypatch) -> None:
+    monkeypatch.setattr(lifecycle, "init_db", _noop)
+    monkeypatch.setattr(lifecycle, "run_migrations", _noop)
+    monkeypatch.setattr(lifecycle, "close_db", _noop)
+    monkeypatch.setattr(routes_dashboard, "SignalRepository", FakeSignalRepositoryWithBrokenOutcomes)
+
+    app = create_app()
+    client = TestClient(app)
+
+    response = client.get("/partials/outcomes_by_phase")
+
+    assert response.status_code == 200
+    assert "Section degraded" in response.text
+    assert "signal_outcomes table missing" in response.text
+    assert "No outcome data yet" in response.text
+
+
+def test_engine_logs_daily_partial_renders_fragment(monkeypatch) -> None:
+    monkeypatch.setattr(lifecycle, "init_db", _noop)
+    monkeypatch.setattr(lifecycle, "run_migrations", _noop)
+    monkeypatch.setattr(lifecycle, "close_db", _noop)
+    monkeypatch.setattr(routes_dashboard, "SignalRepository", FakeSignalRepository)
+
+    app = create_app()
+    client = TestClient(app)
+
+    response = client.get("/partials/engine-logs/daily?date=2026-04-28")
+
+    assert response.status_code == 200
+    assert "engine-logs-board" in response.text
+    assert 'hx-get="/partials/engine-logs/daily?date=2026-04-28"' in response.text
+    assert "PARSED_ONLY_NO_PROMOTION" in response.text
 
 
 def test_dashboard_keeps_signals_when_outcome_queries_fail(monkeypatch) -> None:
