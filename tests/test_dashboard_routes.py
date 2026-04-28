@@ -464,6 +464,7 @@ def test_signal_detail_shows_rationale_summary(monkeypatch) -> None:
     assert "H4 Promotion Gate" in response.text
     assert "BEARISH_CONTINUATION" in response.text
     assert "/series-detail/GBPUSD" in response.text
+    assert "Trade Plan JSON" not in response.text
 
 
 def test_series_detail_shows_merged_series_and_raw_blocks(monkeypatch) -> None:

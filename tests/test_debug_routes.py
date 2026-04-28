@@ -119,6 +119,44 @@ def test_debug_schema_endpoint_reports_drift(monkeypatch) -> None:
     assert payload["missing_indexes"] == ["uq_st_pressure_blocks_block_hash"]
 
 
+def test_debug_get_endpoints_require_basic_auth_when_configured(monkeypatch) -> None:
+    monkeypatch.setattr(lifecycle, "init_db", _noop)
+    monkeypatch.setattr(lifecycle, "run_migrations", _noop)
+    monkeypatch.setattr(lifecycle, "close_db", _noop)
+    monkeypatch.setattr(routes_debug.settings, "dashboard_basic_auth_user", "owner")
+    monkeypatch.setattr(routes_debug.settings, "dashboard_basic_auth_password", "secret")
+
+    async def _fake_schema_status() -> dict:
+        return {"status": "ok"}
+
+    class EmptySignalRepository:
+        async def get_today_signal_debug_counts(self, *, start_utc, end_utc) -> dict:
+            return {
+                "signal_events_today": 0,
+                "engine_source_events_today": 0,
+                "active_blocks_today": 0,
+                "dashboard_signals_today": 0,
+                "latest_signal_event_utc": None,
+            }
+
+    monkeypatch.setattr(routes_debug, "get_pressure_blocks_schema_status", _fake_schema_status)
+    monkeypatch.setattr(routes_debug, "SignalRepository", EmptySignalRepository)
+    monkeypatch.setattr(routes_debug, "get_last_sync_result", lambda: {"status": "disabled"})
+
+    app = create_app()
+    client = TestClient(app)
+
+    unauthorized_schema = client.get("/debug/schema")
+    unauthorized_sync = client.get("/debug/sync")
+    authorized_schema = client.get("/debug/schema", auth=("owner", "secret"))
+    authorized_sync = client.get("/debug/sync", auth=("owner", "secret"))
+
+    assert unauthorized_schema.status_code == 401
+    assert unauthorized_sync.status_code == 401
+    assert authorized_schema.status_code == 200
+    assert authorized_sync.status_code == 200
+
+
 def test_debug_run_migrations_requires_basic_auth_when_configured(monkeypatch) -> None:
     monkeypatch.setattr(lifecycle, "init_db", _noop)
     monkeypatch.setattr(lifecycle, "run_migrations", _noop)

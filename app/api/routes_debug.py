@@ -15,13 +15,12 @@ from app.storage.migrations import get_pressure_blocks_schema_status, run_migrat
 from app.storage.postgres import init_db
 from app.storage.repositories import SignalRepository
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_dashboard_auth)])
 
 
 @router.post("/run-migrations")
 async def debug_run_migrations(
     include_schema: bool = False,
-    _: None = Depends(require_dashboard_auth),
 ) -> dict:
     """Manually re-run migrations (and optionally schema.sql).
 
