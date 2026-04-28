@@ -182,6 +182,20 @@ class FakeSignalRepository:
                 "latest_trade_plan_id": 9,
                 "grade_note": "High density pressure",
             },
+            "raw_signal_events": 113,
+            "throttle_states": [
+                {
+                    "symbol": symbol,
+                    "state_start_utc": "2026-04-27T07:15:23Z",
+                    "state_end_utc": "2026-04-27T07:30:03Z",
+                    "window_seconds": 300,
+                    "count_threshold": 3,
+                    "log_count": 113,
+                    "avg_gap_seconds": 7.86,
+                    "max_gap_seconds": 22.0,
+                    "duration_minutes": 14.67,
+                }
+            ],
             "blocks": [
                 {
                     "id": 9,
@@ -421,6 +435,10 @@ def test_series_detail_shows_merged_series_and_raw_blocks(monkeypatch) -> None:
     assert "Density State" in response.text
     assert "7.7 event/min" in response.text
     assert "HIGH_DENSITY" in response.text
+    assert "Throttle State Summary" in response.text
+    assert "Raw Signal Events" in response.text
+    assert "Throttle State Rows" in response.text
+    assert "113" in response.text
     assert "Raw Block History" in response.text
     assert "Latest Market Snapshot" in response.text
     assert "H4 Promotion Gate" in response.text

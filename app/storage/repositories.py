@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 
 from ..config import settings
@@ -33,15 +33,6 @@ class SignalRepository:
         chart_time: str | None = None,
         meta: dict | None = None,
     ) -> dict:
-        semantic_duplicate_id = await self._find_semantic_throttle_duplicate(
-            symbol=symbol,
-            event_type=event_type,
-            timestamp_utc=timestamp_utc,
-            raw_message=raw_message,
-        )
-        if semantic_duplicate_id is not None:
-            return {"id": semantic_duplicate_id, "duplicate": True}
-
         event_hash = make_event_hash(symbol, timestamp_utc, raw_message)
 
         async with get_cursor() as cur:
@@ -77,47 +68,6 @@ class SignalRepository:
             row = await cur.fetchone()
             assert row is not None
             return {"id": row["id"], "duplicate": False}
-
-    async def _find_semantic_throttle_duplicate(
-        self,
-        *,
-        symbol: str,
-        event_type: str,
-        timestamp_utc: datetime,
-        raw_message: str,
-    ) -> int | None:
-        throttle_key = _semantic_throttle_key(
-            symbol=symbol,
-            event_type=event_type,
-            timestamp_utc=timestamp_utc,
-            raw_message=raw_message,
-        )
-        if throttle_key is None:
-            return None
-
-        async with get_cursor() as cur:
-            await cur.execute(
-                """
-                SELECT id, timestamp_utc, raw_message
-                FROM signal_events
-                WHERE symbol = %s
-                  AND event_type = %s
-                ORDER BY timestamp_utc DESC, id DESC
-                LIMIT 1
-                """,
-                (symbol, event_type),
-            )
-            latest = await cur.fetchone()
-
-        if latest is None:
-            return None
-        if _is_semantic_throttle_duplicate(
-            latest=latest,
-            candidate_timestamp_utc=timestamp_utc,
-            throttle_key=throttle_key,
-        ):
-            return latest["id"]
-        return None
 
     # ----- pressure_blocks -----
 
@@ -795,6 +745,13 @@ class SignalRepository:
         if not series:
             return None
 
+        series_events = await self.get_signal_events_in_range(
+            symbol,
+            series["start_utc"],
+            series["end_utc"],
+        )
+        throttle_states = _build_signal_throttle_states(series_events)
+
         async with get_cursor() as cur:
             await cur.execute(
                 """
@@ -854,6 +811,8 @@ class SignalRepository:
             "latest_snapshot": latest_snapshot,
             "blocks": blocks,
             "trade_plan": trade_plan,
+            "throttle_states": throttle_states,
+            "raw_signal_events": len(series_events),
         }
 
     async def get_last_finalized_block(self, symbol: str) -> dict | None:
@@ -1896,12 +1855,13 @@ def _is_replay_overlap_duplicate(row: dict, candidate: dict) -> bool:
     row_end = row.get("end_utc")
     candidate_start = candidate.get("start_utc")
     candidate_end = candidate.get("end_utc")
-    if not all((row_start, row_end, candidate_start, candidate_end)):
+    if not isinstance(row_start, datetime):
         return False
-    if not all(
-        isinstance(value, datetime)
-        for value in (row_start, row_end, candidate_start, candidate_end)
-    ):
+    if not isinstance(row_end, datetime):
+        return False
+    if not isinstance(candidate_start, datetime):
+        return False
+    if not isinstance(candidate_end, datetime):
         return False
 
     overlap_start = max(row_start, candidate_start)
@@ -1927,16 +1887,18 @@ def _replay_block_preference_key(row: dict) -> tuple[Any, ...]:
     start_utc = row.get("start_utc")
     end_utc = row.get("end_utc")
     duration_seconds = 0.0
-    if start_utc is not None and end_utc is not None:
+    if isinstance(start_utc, datetime) and isinstance(end_utc, datetime):
         duration_seconds = max((end_utc - start_utc).total_seconds(), 0.0)
 
     grade_rank = {"REJECT": 0, "C": 1, "B+": 2, "A-": 3, "A": 4, "A+": 5}
+    pressure_grade = row.get("pressure_grade")
+    pressure_grade_rank = grade_rank.get(pressure_grade, -1) if isinstance(pressure_grade, str) else -1
 
     return (
         1 if row.get("trade_plan_id") is not None else 0,
         duration_seconds,
         float(row.get("event_count") or 0),
-        grade_rank.get(row.get("pressure_grade"), -1),
+        pressure_grade_rank,
         row.get("end_utc"),
         row.get("start_utc"),
         row.get("id") or row.get("block_id") or 0,
@@ -2099,44 +2061,72 @@ def _better_valid_pressure_grade(current: Any, candidate: Any) -> Any:
     return _better_pressure_grade(current, candidate)
 
 
-def _semantic_throttle_key(
-    *,
-    symbol: str,
-    event_type: str,
-    timestamp_utc: datetime,
-    raw_message: str,
-) -> tuple[str, int, int] | None:
-    if event_type != "SIGNAL_THROTTLE":
-        return None
+def _build_signal_throttle_states(events: list[LogEvent]) -> list[dict[str, Any]]:
+    states: list[dict[str, Any]] = []
+    for event in sorted(events, key=lambda item: item.timestamp_utc):
+        parsed = parse_signalthrottle(
+            raw_message=event.raw_message,
+            timestamp_utc=event.timestamp_utc,
+        )
+        if parsed is None:
+            continue
 
-    parsed = parse_signalthrottle(raw_message=raw_message, timestamp_utc=timestamp_utc)
-    if parsed is None:
-        return None
+        current = states[-1] if states else None
+        if current is None or not _can_extend_throttle_state(current, event):
+            states.append(
+                {
+                    "symbol": parsed.symbol,
+                    "state_start_utc": event.timestamp_utc,
+                    "state_end_utc": event.timestamp_utc,
+                    "window_seconds": parsed.window_seconds,
+                    "count_threshold": parsed.count,
+                    "log_count": 1,
+                    "avg_gap_seconds": None,
+                    "max_gap_seconds": None,
+                    "duration_minutes": 0.0,
+                }
+            )
+            continue
 
-    return (parsed.symbol, parsed.count, parsed.window_seconds)
+        previous_end = current["state_end_utc"]
+        gap_seconds = max((event.timestamp_utc - previous_end).total_seconds(), 0.0)
+        current["state_end_utc"] = event.timestamp_utc
+        current["log_count"] += 1
+        current["duration_minutes"] = round(
+            max((event.timestamp_utc - current["state_start_utc"]).total_seconds(), 0.0) / 60.0,
+            2,
+        )
+        current["max_gap_seconds"] = max(current["max_gap_seconds"] or 0.0, gap_seconds)
+
+        total_gap_seconds = float(current.get("_total_gap_seconds") or 0.0) + gap_seconds
+        current["_total_gap_seconds"] = total_gap_seconds
+        if current["log_count"] > 1:
+            current["avg_gap_seconds"] = round(total_gap_seconds / (current["log_count"] - 1), 2)
+
+    for state in states:
+        state.pop("_total_gap_seconds", None)
+    return states
 
 
-def _is_semantic_throttle_duplicate(
-    *,
-    latest: dict,
-    candidate_timestamp_utc: datetime,
-    throttle_key: tuple[str, int, int],
-) -> bool:
-    latest_timestamp = latest.get("timestamp_utc")
-    latest_message = latest.get("raw_message")
-    if not isinstance(latest_timestamp, datetime) or not isinstance(latest_message, str):
+def _can_extend_throttle_state(state: dict[str, Any], event: LogEvent) -> bool:
+    state_end_utc = state.get("state_end_utc")
+    if not isinstance(state_end_utc, datetime):
+        return False
+    if state.get("symbol") != event.symbol:
         return False
 
-    latest_key = _semantic_throttle_key(
-        symbol=throttle_key[0],
-        event_type="SIGNAL_THROTTLE",
-        timestamp_utc=latest_timestamp,
-        raw_message=latest_message,
+    parsed = parse_signalthrottle(
+        raw_message=event.raw_message,
+        timestamp_utc=event.timestamp_utc,
     )
-    if latest_key != throttle_key:
+    if parsed is None:
+        return False
+    if state.get("count_threshold") != parsed.count:
+        return False
+    if state.get("window_seconds") != parsed.window_seconds:
         return False
 
-    return candidate_timestamp_utc - latest_timestamp < timedelta(seconds=throttle_key[2])
+    return (event.timestamp_utc - state_end_utc).total_seconds() <= parsed.window_seconds
 
 
 def _json_or_none(obj: Any) -> str | None:
