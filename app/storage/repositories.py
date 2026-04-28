@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from ..config import settings
 from ..models.log_event import LogEvent
+from ..parser.signalthrottle_parser import parse_signalthrottle
 from ..parser.timestamp_mapper import to_chart_time, to_wita
 from ..scoring.pressure_grader import grade_pressure
 from ..scoring.pressure_metrics import calculate_pressure_metrics
@@ -32,6 +33,15 @@ class SignalRepository:
         chart_time: str | None = None,
         meta: dict | None = None,
     ) -> dict:
+        semantic_duplicate_id = await self._find_semantic_throttle_duplicate(
+            symbol=symbol,
+            event_type=event_type,
+            timestamp_utc=timestamp_utc,
+            raw_message=raw_message,
+        )
+        if semantic_duplicate_id is not None:
+            return {"id": semantic_duplicate_id, "duplicate": True}
+
         event_hash = make_event_hash(symbol, timestamp_utc, raw_message)
 
         async with get_cursor() as cur:
@@ -67,6 +77,47 @@ class SignalRepository:
             row = await cur.fetchone()
             assert row is not None
             return {"id": row["id"], "duplicate": False}
+
+    async def _find_semantic_throttle_duplicate(
+        self,
+        *,
+        symbol: str,
+        event_type: str,
+        timestamp_utc: datetime,
+        raw_message: str,
+    ) -> int | None:
+        throttle_key = _semantic_throttle_key(
+            symbol=symbol,
+            event_type=event_type,
+            timestamp_utc=timestamp_utc,
+            raw_message=raw_message,
+        )
+        if throttle_key is None:
+            return None
+
+        async with get_cursor() as cur:
+            await cur.execute(
+                """
+                SELECT id, timestamp_utc, raw_message
+                FROM signal_events
+                WHERE symbol = %s
+                  AND event_type = %s
+                ORDER BY timestamp_utc DESC, id DESC
+                LIMIT 1
+                """,
+                (symbol, event_type),
+            )
+            latest = await cur.fetchone()
+
+        if latest is None:
+            return None
+        if _is_semantic_throttle_duplicate(
+            latest=latest,
+            candidate_timestamp_utc=timestamp_utc,
+            throttle_key=throttle_key,
+        ):
+            return latest["id"]
+        return None
 
     # ----- pressure_blocks -----
 
@@ -2046,6 +2097,46 @@ def _better_valid_pressure_grade(current: Any, candidate: Any) -> Any:
     if not _is_valid_pressure_grade(current):
         return candidate
     return _better_pressure_grade(current, candidate)
+
+
+def _semantic_throttle_key(
+    *,
+    symbol: str,
+    event_type: str,
+    timestamp_utc: datetime,
+    raw_message: str,
+) -> tuple[str, int, int] | None:
+    if event_type != "SIGNAL_THROTTLE":
+        return None
+
+    parsed = parse_signalthrottle(raw_message=raw_message, timestamp_utc=timestamp_utc)
+    if parsed is None:
+        return None
+
+    return (parsed.symbol, parsed.count, parsed.window_seconds)
+
+
+def _is_semantic_throttle_duplicate(
+    *,
+    latest: dict,
+    candidate_timestamp_utc: datetime,
+    throttle_key: tuple[str, int, int],
+) -> bool:
+    latest_timestamp = latest.get("timestamp_utc")
+    latest_message = latest.get("raw_message")
+    if not isinstance(latest_timestamp, datetime) or not isinstance(latest_message, str):
+        return False
+
+    latest_key = _semantic_throttle_key(
+        symbol=throttle_key[0],
+        event_type="SIGNAL_THROTTLE",
+        timestamp_utc=latest_timestamp,
+        raw_message=latest_message,
+    )
+    if latest_key != throttle_key:
+        return False
+
+    return candidate_timestamp_utc - latest_timestamp < timedelta(seconds=throttle_key[2])
 
 
 def _json_or_none(obj: Any) -> str | None:

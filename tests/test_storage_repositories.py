@@ -564,6 +564,93 @@ def test_dedupe_exact_pressure_block_rows_prefers_latest_duplicate_row() -> None
     assert deduped[0]["id"] == 23
 
 
+def test_insert_signal_event_treats_repeated_throttle_within_window_as_duplicate(monkeypatch) -> None:
+    latest_row = {
+        "id": 17,
+        "timestamp_utc": datetime(2026, 4, 27, 7, 15, 23, tzinfo=timezone.utc),
+        "raw_message": "[SignalThrottle] NZDCHF THROTTLED — 3 signals in last 300s (max 3)",
+    }
+
+    class FakeCursor:
+        def __init__(self, fetchone_responses=None):
+            self._fetchone_responses = list(fetchone_responses or [])
+            self.execute_calls = 0
+
+        async def execute(self, query, params=None) -> None:
+            self.execute_calls += 1
+
+        async def fetchone(self):
+            if self._fetchone_responses:
+                return self._fetchone_responses.pop(0)
+            return None
+
+    cursors = [FakeCursor(fetchone_responses=[latest_row])]
+
+    @asynccontextmanager
+    async def fake_get_cursor():
+        yield cursors.pop(0)
+
+    monkeypatch.setattr(repositories_module, "get_cursor", fake_get_cursor)
+
+    repo = SignalRepository()
+    result = asyncio.run(
+        repo.insert_signal_event(
+            symbol="NZDCHF",
+            event_type="SIGNAL_THROTTLE",
+            timestamp_utc=datetime(2026, 4, 27, 7, 19, 55, tzinfo=timezone.utc),
+            raw_message="[SignalThrottle] NZDCHF THROTTLED — 3 signals in last 300s (max 3)",
+        )
+    )
+
+    assert result == {"id": 17, "duplicate": True}
+    assert not cursors
+
+
+def test_insert_signal_event_keeps_new_throttle_after_window_expires(monkeypatch) -> None:
+    latest_row = {
+        "id": 17,
+        "timestamp_utc": datetime(2026, 4, 27, 7, 15, 23, tzinfo=timezone.utc),
+        "raw_message": "[SignalThrottle] NZDCHF THROTTLED — 3 signals in last 300s (max 3)",
+    }
+
+    class FakeCursor:
+        def __init__(self, fetchone_responses=None):
+            self._fetchone_responses = list(fetchone_responses or [])
+            self.execute_calls = 0
+
+        async def execute(self, query, params=None) -> None:
+            self.execute_calls += 1
+
+        async def fetchone(self):
+            if self._fetchone_responses:
+                return self._fetchone_responses.pop(0)
+            return None
+
+    semantic_cursor = FakeCursor(fetchone_responses=[latest_row])
+    insert_cursor = FakeCursor(fetchone_responses=[None, {"id": 44}])
+    cursors = [semantic_cursor, insert_cursor]
+
+    @asynccontextmanager
+    async def fake_get_cursor():
+        yield cursors.pop(0)
+
+    monkeypatch.setattr(repositories_module, "get_cursor", fake_get_cursor)
+
+    repo = SignalRepository()
+    result = asyncio.run(
+        repo.insert_signal_event(
+            symbol="NZDCHF",
+            event_type="SIGNAL_THROTTLE",
+            timestamp_utc=datetime(2026, 4, 27, 7, 20, 24, tzinfo=timezone.utc),
+            raw_message="[SignalThrottle] NZDCHF THROTTLED — 3 signals in last 300s (max 3)",
+        )
+    )
+
+    assert result == {"id": 44, "duplicate": False}
+    assert insert_cursor.execute_calls == 2
+    assert not cursors
+
+
 def test_get_signal_series_detail_dedupes_exact_raw_blocks(monkeypatch) -> None:
     series_row = {
         "symbol": "GBPUSD",
