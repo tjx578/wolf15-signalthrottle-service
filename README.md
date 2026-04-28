@@ -836,6 +836,8 @@ Example row:
 }
 ```
 
+`best_pressure_grade` adalah grade terbaik yang pernah muncul di family series secara keseluruhan, sedangkan `best_valid_block_grade` adalah grade terbaik dari continuity block yang masih valid untuk penilaian actionable setelah family itu dipecah oleh continuity gap.
+
 ### Active blocks
 
 ```http
