@@ -32,10 +32,19 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
-// Auto-refresh active blocks every 30s
-setInterval(() => {
-  const activeTable = document.querySelector('.panel table');
-  if (activeTable) {
-    // Could use htmx for partial refresh in production
+document.addEventListener('DOMContentLoaded', () => {
+  const refreshSeconds = Number.parseInt(document.body.dataset.autoRefreshSeconds || '', 10);
+  if (!Number.isFinite(refreshSeconds) || refreshSeconds <= 0) {
+    return;
   }
-}, 30000);
+
+  setInterval(() => {
+    if (document.hidden) {
+      return;
+    }
+    if (document.activeElement instanceof HTMLInputElement || document.activeElement instanceof HTMLTextAreaElement) {
+      return;
+    }
+    window.location.reload();
+  }, refreshSeconds * 1000);
+});

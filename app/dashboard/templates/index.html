@@ -1,5 +1,7 @@
 {% extends "base.html" %}
 
+{% block body_attrs %}data-auto-refresh-seconds="30" data-auto-refresh-path="dashboard"{% endblock %}
+
 {% block content %}
 {% if section_errors %}
 <section class="panel">

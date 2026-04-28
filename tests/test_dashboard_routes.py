@@ -418,6 +418,8 @@ def test_dashboard_watchlist_renders_pending_pressure_without_trade_plan(monkeyp
     assert "TRADE_PLAN_REQUIRED" in response.text
     assert "H4_BEARISH_MASTER_STRUCTURE" in response.text
     assert "BEARISH_CONTINUATION" in response.text
+    assert 'data-auto-refresh-seconds="30"' in response.text
+    assert 'data-auto-refresh-path="dashboard"' in response.text
     assert "GBPUSD B+ pressure is valid, but H4 bearish master structure blocks bullish continuation promotion." in response.text
     assert "AUDUSD" in response.text
     assert "radar_below_threshold" in response.text
@@ -465,6 +467,7 @@ def test_signal_detail_shows_rationale_summary(monkeypatch) -> None:
     assert "BEARISH_CONTINUATION" in response.text
     assert "/series-detail/GBPUSD" in response.text
     assert "Trade Plan JSON" not in response.text
+    assert 'data-auto-refresh-seconds="30"' not in response.text
 
 
 def test_series_detail_shows_merged_series_and_raw_blocks(monkeypatch) -> None:
@@ -514,6 +517,8 @@ def test_engine_logs_daily_page_shows_observability_summary(monkeypatch) -> None
 
     assert response.status_code == 200
     assert "Engine Logs Daily" in response.text
+    assert 'data-auto-refresh-seconds="30"' in response.text
+    assert 'data-auto-refresh-path="engine-logs"' in response.text
     assert "Raw Extracted Logs" in response.text
     assert "Parsed Signal Events" in response.text
     assert "PARSED_ONLY_NO_PROMOTION" in response.text

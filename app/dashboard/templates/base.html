@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="/static/app.css" />
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
 </head>
-<body>
+<body {% block body_attrs %}{% endblock %}>
   <header class="topbar">
     <div>
       <h1>Wolf15 SignalThrottle</h1>
