@@ -143,7 +143,7 @@ class EngineLogSync:
                 source_service=event.source_service,
                 timestamp_wita=event.timestamp_wita,
                 chart_time=event.chart_time,
-                meta={"sync_source": "engine_log_sync"},
+                meta={"sync_source": "engine_log_sync", "source_path": "engine_log_sync"},
             )
             if result.get("duplicate"):
                 duplicates += 1

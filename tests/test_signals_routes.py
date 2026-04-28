@@ -354,6 +354,50 @@ def test_latest_signals_invalid_bucket_falls_back_to_all(monkeypatch) -> None:
     assert payload["signals"][0]["symbol"] == "EURGBP"
 
 
+def test_engine_logs_daily_api_returns_observability_summary(monkeypatch) -> None:
+    class EngineLogsRepo:
+        async def get_engine_logs_daily_summary(self, *, start_utc, end_utc) -> dict:
+            return {
+                "raw_extracted_logs": 182,
+                "parsed_signal_events": 182,
+                "sync_events": 0,
+                "webhook_events": 182,
+                "engine_labeled_events": 182,
+                "promoted_pressure_blocks": 0,
+                "dashboard_signals": 0,
+                "symbols": [
+                    {
+                        "symbol": "NZDCHF",
+                        "event_count": 107,
+                        "first_event_utc": "2026-04-28T08:47:30Z",
+                        "last_event_utc": "2026-04-28T10:49:31Z",
+                        "sync_event_count": 0,
+                        "webhook_event_count": 107,
+                        "engine_labeled_event_count": 107,
+                        "promoted_blocks": 0,
+                        "best_candidate_grade": None,
+                        "failure_reason": "PARSED_ONLY_NO_PROMOTION",
+                    }
+                ],
+            }
+
+    monkeypatch.setattr(lifecycle, "init_db", _noop)
+    monkeypatch.setattr(lifecycle, "run_migrations", _noop)
+    monkeypatch.setattr(lifecycle, "close_db", _noop)
+    monkeypatch.setattr(routes_signals, "SignalRepository", EngineLogsRepo)
+
+    app = create_app()
+    client = TestClient(app)
+
+    response = client.get("/signals/engine-logs/daily")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["view_mode"] == "PAIR_FILTERED_DIAGNOSTIC"
+    assert payload["raw_extracted_logs"] == 182
+    assert payload["symbols"][0]["symbol"] == "NZDCHF"
+    assert payload["symbols"][0]["failure_reason"] == "PARSED_ONLY_NO_PROMOTION"
+
 def test_latest_signals_watchlist_includes_b_plus(monkeypatch) -> None:
     monkeypatch.setattr(lifecycle, "init_db", _noop)
     monkeypatch.setattr(lifecycle, "run_migrations", _noop)

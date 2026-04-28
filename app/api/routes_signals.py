@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+from datetime import datetime, time, timezone
+
 from fastapi import APIRouter
+
+from app.config import settings
+from app.ingestion.engine_log_sync import owner_day_window_utc
 
 from app.storage.repositories import SignalRepository
 
@@ -67,6 +72,29 @@ async def signal_series(symbol: str | None = None, limit: int = 50):
         "history_type": "merged_pressure_series",
         "symbol": symbol,
         "signals": rows,
+    }
+
+
+@router.get("/engine-logs/daily")
+async def engine_logs_daily(date: str | None = None):
+    repo = SignalRepository()
+    if date:
+        day = datetime.fromisoformat(date).date()
+        owner_now = datetime.combine(day, time.max, tzinfo=timezone.utc)
+    else:
+        owner_now = datetime.now(timezone.utc)
+
+    start_utc, end_utc = owner_day_window_utc(owner_now, settings.owner_timezone)
+    summary = await repo.get_engine_logs_daily_summary(start_utc=start_utc, end_utc=end_utc)
+    return {
+        "date": (date or owner_now.date().isoformat()),
+        "view_mode": "PAIR_FILTERED_DIAGNOSTIC",
+        "window": {
+            "start_utc": start_utc.isoformat(),
+            "end_utc": end_utc.isoformat(),
+            "owner_timezone": settings.owner_timezone,
+        },
+        **summary,
     }
 
 

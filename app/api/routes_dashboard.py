@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, time, timezone
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
+from ..config import settings
+from ..ingestion.engine_log_sync import owner_day_window_utc
 from ..storage.repositories import SignalRepository
 
 logger = logging.getLogger(__name__)
@@ -161,5 +164,32 @@ async def series_detail_page(request: Request, symbol: str):
             "request": request,
             "detail": detail,
             "symbol": symbol,
+        },
+    )
+
+
+@router.get("/engine-logs/daily", response_class=HTMLResponse)
+async def engine_logs_daily_page(request: Request, date: str | None = None):
+    repo = SignalRepository()
+    if date:
+        day = datetime.fromisoformat(date).date()
+        owner_now = datetime.combine(day, time.max, tzinfo=timezone.utc)
+    else:
+        owner_now = datetime.now(timezone.utc)
+
+    start_utc, end_utc = owner_day_window_utc(owner_now, settings.owner_timezone)
+    summary = await repo.get_engine_logs_daily_summary(start_utc=start_utc, end_utc=end_utc)
+
+    return templates.TemplateResponse(
+        "engine_logs_daily.html",
+        {
+            "request": request,
+            "summary": summary,
+            "selected_date": date or owner_now.date().isoformat(),
+            "window": {
+                "start_utc": start_utc.isoformat(),
+                "end_utc": end_utc.isoformat(),
+                "owner_timezone": settings.owner_timezone,
+            },
         },
     )

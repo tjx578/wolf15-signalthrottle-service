@@ -1247,6 +1247,134 @@ class SignalRepository:
                 "latest_signal_event_utc": latest_event.isoformat() if latest_event else None,
             }
 
+    async def get_engine_logs_daily_summary(
+        self,
+        *,
+        start_utc: datetime,
+        end_utc: datetime,
+    ) -> dict[str, Any]:
+        async with get_cursor() as cur:
+            await cur.execute(
+                """
+                SELECT
+                    COUNT(*) AS raw_extracted_logs,
+                    COUNT(*) FILTER (
+                        WHERE COALESCE(meta->>'source_path', 'unknown') = 'engine_log_sync'
+                    ) AS sync_events,
+                    COUNT(*) FILTER (
+                        WHERE COALESCE(meta->>'source_path', 'unknown') = 'webhook'
+                    ) AS webhook_events,
+                    COUNT(*) FILTER (
+                        WHERE source_service = %s
+                    ) AS engine_labeled_events
+                FROM signal_events
+                WHERE timestamp_utc >= %s AND timestamp_utc <= %s
+                """,
+                (settings.engine_log_source_service, start_utc, end_utc),
+            )
+            totals = await cur.fetchone() or {}
+
+            await cur.execute(
+                """
+                SELECT COUNT(*) AS promoted_pressure_blocks
+                FROM pressure_blocks
+                WHERE end_utc >= %s AND end_utc <= %s
+                """,
+                (start_utc, end_utc),
+            )
+            promoted_row = await cur.fetchone() or {}
+
+            await cur.execute(
+                """
+                SELECT COUNT(*) AS dashboard_signals
+                FROM pressure_blocks
+                WHERE end_utc >= %s AND end_utc <= %s
+                  AND pressure_grade IN ('B+', 'A-', 'A', 'A+')
+                """,
+                (start_utc, end_utc),
+            )
+            dashboard_row = await cur.fetchone() or {}
+
+            await cur.execute(
+                """
+                SELECT
+                    symbol,
+                    COUNT(*) AS event_count,
+                    MIN(timestamp_utc) AS first_event_utc,
+                    MAX(timestamp_utc) AS last_event_utc,
+                    COUNT(*) FILTER (
+                        WHERE COALESCE(meta->>'source_path', 'unknown') = 'engine_log_sync'
+                    ) AS sync_event_count,
+                    COUNT(*) FILTER (
+                        WHERE COALESCE(meta->>'source_path', 'unknown') = 'webhook'
+                    ) AS webhook_event_count,
+                    COUNT(*) FILTER (
+                        WHERE source_service = %s
+                    ) AS engine_labeled_event_count
+                FROM signal_events
+                WHERE timestamp_utc >= %s AND timestamp_utc <= %s
+                GROUP BY symbol
+                ORDER BY event_count DESC, symbol ASC
+                """,
+                (settings.engine_log_source_service, start_utc, end_utc),
+            )
+            symbol_rows = await cur.fetchall()
+
+            await cur.execute(
+                """
+                SELECT
+                    symbol,
+                    COUNT(*) AS promoted_blocks,
+                    MAX(pressure_grade) AS best_candidate_grade
+                FROM pressure_blocks
+                WHERE end_utc >= %s AND end_utc <= %s
+                GROUP BY symbol
+                """,
+                (start_utc, end_utc),
+            )
+            promoted_rows = await cur.fetchall()
+
+        promoted_by_symbol = {
+            row["symbol"]: row
+            for row in promoted_rows
+            if row.get("symbol")
+        }
+        symbols: list[dict[str, Any]] = []
+        for row in symbol_rows:
+            symbol = row.get("symbol")
+            if not symbol:
+                continue
+            promoted = promoted_by_symbol.get(symbol, {})
+            promoted_blocks = int(promoted.get("promoted_blocks") or 0)
+            symbols.append(
+                {
+                    "symbol": symbol,
+                    "event_count": int(row.get("event_count") or 0),
+                    "first_event_utc": row.get("first_event_utc").isoformat() if row.get("first_event_utc") else None,
+                    "last_event_utc": row.get("last_event_utc").isoformat() if row.get("last_event_utc") else None,
+                    "sync_event_count": int(row.get("sync_event_count") or 0),
+                    "webhook_event_count": int(row.get("webhook_event_count") or 0),
+                    "engine_labeled_event_count": int(row.get("engine_labeled_event_count") or 0),
+                    "promoted_blocks": promoted_blocks,
+                    "best_candidate_grade": promoted.get("best_candidate_grade"),
+                    "failure_reason": _engine_logs_failure_reason(
+                        event_count=int(row.get("event_count") or 0),
+                        promoted_blocks=promoted_blocks,
+                    ),
+                }
+            )
+
+        return {
+            "raw_extracted_logs": int(totals.get("raw_extracted_logs") or 0),
+            "parsed_signal_events": int(totals.get("raw_extracted_logs") or 0),
+            "sync_events": int(totals.get("sync_events") or 0),
+            "webhook_events": int(totals.get("webhook_events") or 0),
+            "engine_labeled_events": int(totals.get("engine_labeled_events") or 0),
+            "promoted_pressure_blocks": int(promoted_row.get("promoted_pressure_blocks") or 0),
+            "dashboard_signals": int(dashboard_row.get("dashboard_signals") or 0),
+            "symbols": symbols,
+        }
+
     # ----- market_snapshots -----
 
     async def insert_market_snapshot(self, snapshot: dict) -> int:
@@ -2059,6 +2187,14 @@ def _better_valid_pressure_grade(current: Any, candidate: Any) -> Any:
     if not _is_valid_pressure_grade(current):
         return candidate
     return _better_pressure_grade(current, candidate)
+
+
+def _engine_logs_failure_reason(*, event_count: int, promoted_blocks: int) -> str | None:
+    if promoted_blocks > 0:
+        return None
+    if event_count <= 0:
+        return "NO_EVENTS"
+    return "PARSED_ONLY_NO_PROMOTION"
 
 
 def _build_signal_throttle_states(events: list[LogEvent]) -> list[dict[str, Any]]:

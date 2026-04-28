@@ -74,7 +74,7 @@ async def receive_signal_throttle(
         source_service=event.source_service,
         timestamp_wita=event.timestamp_wita,
         chart_time=event.chart_time,
-        meta=payload.model_dump(mode="json"),
+        meta={**payload.model_dump(mode="json"), "source_path": "webhook"},
     )
 
     if result.get("duplicate"):

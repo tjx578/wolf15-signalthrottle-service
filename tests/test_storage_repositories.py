@@ -766,3 +766,79 @@ def test_get_signal_series_detail_dedupes_exact_raw_blocks(monkeypatch) -> None:
     assert detail["raw_signal_events"] == 2
     assert len(detail["throttle_states"]) == 1
     assert detail["throttle_states"][0]["log_count"] == 2
+
+
+def test_get_engine_logs_daily_summary_reports_source_paths_and_promotion(monkeypatch) -> None:
+    totals_row = {
+        "raw_extracted_logs": 5,
+        "sync_events": 2,
+        "webhook_events": 3,
+        "engine_labeled_events": 5,
+    }
+    promoted_total_row = {"promoted_pressure_blocks": 1}
+    dashboard_total_row = {"dashboard_signals": 1}
+    symbol_rows = [
+        {
+            "symbol": "NZDCHF",
+            "event_count": 5,
+            "first_event_utc": datetime(2026, 4, 28, 8, 47, 30, tzinfo=timezone.utc),
+            "last_event_utc": datetime(2026, 4, 28, 9, 7, 22, tzinfo=timezone.utc),
+            "sync_event_count": 2,
+            "webhook_event_count": 3,
+            "engine_labeled_event_count": 5,
+        }
+    ]
+    promoted_rows = [
+        {
+            "symbol": "NZDCHF",
+            "promoted_blocks": 1,
+            "best_candidate_grade": "B+",
+        }
+    ]
+
+    class FakeCursor:
+        def __init__(self, fetchone_responses=None, fetchall_responses=None):
+            self._fetchone_responses = list(fetchone_responses or [])
+            self._fetchall_responses = list(fetchall_responses or [])
+
+        async def execute(self, query, params=None) -> None:
+            return None
+
+        async def fetchone(self):
+            if self._fetchone_responses:
+                return self._fetchone_responses.pop(0)
+            return None
+
+        async def fetchall(self):
+            if self._fetchall_responses:
+                return self._fetchall_responses.pop(0)
+            return []
+
+    cursors = [
+        FakeCursor(
+            fetchone_responses=[totals_row, promoted_total_row, dashboard_total_row],
+            fetchall_responses=[symbol_rows, promoted_rows],
+        ),
+    ]
+
+    @asynccontextmanager
+    async def fake_get_cursor():
+        yield cursors.pop(0)
+
+    monkeypatch.setattr(repositories_module, "get_cursor", fake_get_cursor)
+
+    repo = SignalRepository()
+    summary = asyncio.run(
+        repo.get_engine_logs_daily_summary(
+            start_utc=datetime(2026, 4, 28, 0, 0, tzinfo=timezone.utc),
+            end_utc=datetime(2026, 4, 28, 23, 59, tzinfo=timezone.utc),
+        )
+    )
+
+    assert summary["raw_extracted_logs"] == 5
+    assert summary["sync_events"] == 2
+    assert summary["webhook_events"] == 3
+    assert summary["promoted_pressure_blocks"] == 1
+    assert summary["dashboard_signals"] == 1
+    assert summary["symbols"][0]["symbol"] == "NZDCHF"
+    assert summary["symbols"][0]["failure_reason"] is None

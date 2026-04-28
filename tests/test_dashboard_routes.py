@@ -247,6 +247,31 @@ class FakeSignalRepository:
             },
         }
 
+    async def get_engine_logs_daily_summary(self, *, start_utc, end_utc) -> dict:
+        return {
+            "raw_extracted_logs": 182,
+            "parsed_signal_events": 182,
+            "sync_events": 0,
+            "webhook_events": 182,
+            "engine_labeled_events": 182,
+            "promoted_pressure_blocks": 0,
+            "dashboard_signals": 0,
+            "symbols": [
+                {
+                    "symbol": "NZDCHF",
+                    "event_count": 107,
+                    "first_event_utc": "2026-04-28T08:47:30Z",
+                    "last_event_utc": "2026-04-28T10:49:31Z",
+                    "sync_event_count": 0,
+                    "webhook_event_count": 107,
+                    "engine_labeled_event_count": 107,
+                    "promoted_blocks": 0,
+                    "best_candidate_grade": None,
+                    "failure_reason": "PARSED_ONLY_NO_PROMOTION",
+                }
+            ],
+        }
+
     async def get_dashboard_stats(self) -> dict:
         return {
             "active_blocks": 0,
@@ -449,6 +474,25 @@ def test_series_detail_shows_merged_series_and_raw_blocks(monkeypatch) -> None:
     assert "Continuity Block Rule" in response.text
     assert "Plan 9" in response.text
     assert "2026-04-27T07:15:23Z" in response.text
+
+
+def test_engine_logs_daily_page_shows_observability_summary(monkeypatch) -> None:
+    monkeypatch.setattr(lifecycle, "init_db", _noop)
+    monkeypatch.setattr(lifecycle, "run_migrations", _noop)
+    monkeypatch.setattr(lifecycle, "close_db", _noop)
+    monkeypatch.setattr(routes_dashboard, "SignalRepository", FakeSignalRepository)
+
+    app = create_app()
+    client = TestClient(app)
+
+    response = client.get("/engine-logs/daily")
+
+    assert response.status_code == 200
+    assert "Engine Logs Daily" in response.text
+    assert "Raw Extracted Logs" in response.text
+    assert "Parsed Signal Events" in response.text
+    assert "PARSED_ONLY_NO_PROMOTION" in response.text
+    assert "NZDCHF" in response.text
 
 
 def test_dashboard_keeps_signals_when_outcome_queries_fail(monkeypatch) -> None:
