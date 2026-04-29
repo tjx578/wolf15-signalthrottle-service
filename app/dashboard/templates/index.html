@@ -28,8 +28,9 @@
 
 <section id="replay-logs" class="panel">
   <h2>Replay Logs</h2>
+  <p style="color: var(--muted); font-size: 13px; margin: 0 0 12px 0;">Paste raw SignalThrottle logs to test block detection and trade plan generation. Logs are idempotent — replaying the same logs won't create duplicates.</p>
   <form id="replay-form">
-    <textarea id="replay-logs" rows="6" placeholder="Paste raw SignalThrottle logs here..."></textarea>
+    <textarea id="replay-logs" placeholder="[2026-04-28T16:00:00Z] [SignalThrottle] USDJPY THROTTLED — 3 signals in last 300s (max 3)&#10;[2026-04-28T16:00:15Z] [SignalThrottle] EURUSD THROTTLED — 5 signals in last 300s (max 5)&#10;...paste logs here..."></textarea>
     <button type="submit" class="btn">Process Logs</button>
   </form>
   <div id="replay-result"></div>

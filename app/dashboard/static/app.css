@@ -260,6 +260,12 @@ a:hover {
 }
 
 /* Replay form */
+#replay-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
 #replay-form textarea {
   width: 100%;
   background: var(--bg);
@@ -270,7 +276,7 @@ a:hover {
   font-family: 'JetBrains Mono', monospace;
   font-size: 13px;
   resize: vertical;
-  margin-bottom: 12px;
+  min-height: 120px;
 }
 
 .btn {
@@ -282,17 +288,127 @@ a:hover {
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
+  align-self: flex-start;
+  transition: opacity 0.2s;
 }
 
-.btn:hover {
+.btn:hover:not(:disabled) {
   opacity: 0.9;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 #replay-result {
   margin-top: 12px;
-  font-family: monospace;
+}
+
+.result {
+  padding: 16px;
+  border-radius: 8px;
+  border-left: 4px solid var(--line);
+}
+
+.result h3 {
+  margin: 0 0 12px 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.result-success {
+  background: rgba(76, 175, 80, 0.1);
+  border-left-color: var(--good);
+  color: #4caf50;
+}
+
+.result-warning {
+  background: rgba(255, 152, 0, 0.1);
+  border-left-color: #ff9800;
+  color: #ff9800;
+}
+
+.result-error {
+  background: rgba(244, 67, 54, 0.1);
+  border-left-color: #f44336;
+  color: #f44336;
+}
+
+.result-stats {
+  background: rgba(255, 255, 255, 0.05);
+  padding: 12px;
+  border-radius: 4px;
+  margin: 8px 0;
+}
+
+.result-stats p {
+  margin: 4px 0;
   font-size: 13px;
-  color: var(--muted);
+  line-height: 1.4;
+}
+
+.result-details {
+  margin-top: 12px;
+  cursor: pointer;
+}
+
+.result-details summary {
+  font-weight: 600;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  user-select: none;
+  font-size: 13px;
+}
+
+.result-details summary:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.blocks-list {
+  margin-top: 8px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.block-item {
+  padding: 8px;
+  margin: 4px 0;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  font-size: 12px;
+  border-left: 3px solid rgba(255, 255, 255, 0.3);
+  line-height: 1.5;
+}
+
+.grade {
+  font-weight: bold;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 11px;
+}
+
+.grade-A {
+  background: #4caf50;
+  color: white;
+}
+
+.grade-B {
+  background: #ff9800;
+  color: white;
+}
+
+.grade-C {
+  background: #f44336;
+  color: white;
+}
+
+.loading {
+  text-align: center;
+  padding: 16px;
+  font-size: 13px;
+  color: var(--good);
 }
 
 /* Footer */

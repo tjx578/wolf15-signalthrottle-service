@@ -40,7 +40,18 @@ async def replay_logs(
     payload: ReplayPayload,
     _: None = Depends(require_dashboard_auth),
 ):
-    """Parse raw log text, detect blocks, compute grades, store results."""
+    """Parse raw log text, detect blocks, compute grades, store results.
+    
+    Replay is idempotent: same block_hash never creates duplicate blocks.
+    Relaying same logs N times yields identical results.
+    """
+    if not payload.logs or not payload.logs.strip():
+        return {
+            "status": "error",
+            "error": "empty_input",
+            "message": "Logs field is empty. Please paste raw SignalThrottle logs.",
+        }
+    
     try:
         lines = payload.logs.strip().splitlines()
         events: list[LogEvent] = []
@@ -80,7 +91,11 @@ async def replay_logs(
             )
 
         if not events:
-            return {"status": "no_events_parsed", "line_count": len(lines)}
+            return {
+                "status": "no_events_parsed",
+                "line_count": len(lines),
+                "message": f"No valid SignalThrottle logs found in {len(lines)} lines. Check timestamp format (expected: YYYY-MM-DDTHH:MM:SSZ)"
+            }
 
         # Store events
         repo = SignalRepository()
