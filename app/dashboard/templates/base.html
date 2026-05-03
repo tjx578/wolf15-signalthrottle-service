@@ -19,7 +19,9 @@
         <div class="nav-links">
           <a href="/">Overview</a>
           <a href="/#active-pressure">Active</a>
+          {% if not phase1_mode %}
           <a href="/#trade-plan-ready">Ready</a>
+          {% endif %}
         </div>
       </div>
       <div class="nav-group">
@@ -29,6 +31,7 @@
           <a href="/#replay-logs">Replay</a>
         </div>
       </div>
+      {% if not phase1_mode %}
       <div class="nav-group">
         <span class="nav-group-label">Outcomes</span>
         <div class="nav-links">
@@ -36,6 +39,7 @@
           <a href="/#latest-outcomes">Latest</a>
         </div>
       </div>
+      {% endif %}
       <div class="nav-group">
         <span class="nav-group-label">Debug</span>
         <div class="nav-links">

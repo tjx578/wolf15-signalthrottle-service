@@ -9,6 +9,7 @@ from pydantic import BaseModel
 SIGNAL_RE = re.compile(
     r"\[SignalThrottle\]\s+(?P<symbol>[A-Z]{6})\s+THROTTLED\s+[—–-]\s+"
     r"(?P<count>\d+)\s+signals\s+in\s+last\s+(?P<window>\d+)s"
+    r"(?:\s+\(max\s+(?P<max_signals>\d+)\))?"
 )
 
 
@@ -17,6 +18,7 @@ class ParsedSignalThrottle(BaseModel):
     timestamp_utc: datetime
     count: int
     window_seconds: int
+    max_signals: int | None = None
     raw_message: str
 
 
@@ -37,5 +39,10 @@ def parse_signalthrottle(
         timestamp_utc=ts,
         count=int(match.group("count")),
         window_seconds=int(match.group("window")),
+        max_signals=(
+            int(match.group("max_signals"))
+            if match.group("max_signals") is not None
+            else None
+        ),
         raw_message=raw_message,
     )

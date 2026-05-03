@@ -9,7 +9,7 @@ from app.config import settings
 from app.ingestion.engine_log_sync import (
     explain_sync_status,
     get_last_sync_result,
-    owner_day_window_utc,
+    utc_day_window_utc,
 )
 from app.storage.migrations import get_pressure_blocks_schema_status, run_migrations
 from app.storage.postgres import init_db
@@ -54,7 +54,7 @@ async def debug_schema_status() -> dict:
 @router.get("/sync")
 async def debug_sync_status() -> dict:
     now_utc = datetime.now(timezone.utc)
-    start_utc, end_utc = owner_day_window_utc(now_utc, settings.owner_timezone)
+    start_utc, end_utc = utc_day_window_utc(now_utc)
     repo = SignalRepository()
     today_counts = await repo.get_today_signal_debug_counts(start_utc=start_utc, end_utc=end_utc)
     last_sync_result = get_last_sync_result()
@@ -66,6 +66,7 @@ async def debug_sync_status() -> dict:
         "window": {
             "start_utc": start_utc.isoformat(),
             "end_utc": end_utc.isoformat(),
+            "window_rule": "[utc_midnight, now_utc]",
             "owner_timezone": settings.owner_timezone,
         },
         "last_sync_result": last_sync_result,

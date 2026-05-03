@@ -117,7 +117,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.warning("DB init skipped (will retry on first request): %s", exc)
 
     finalizer_task = asyncio.create_task(finalizer_loop(stop_event))
-    if _OUTCOMES_AVAILABLE and OutcomeWorker is not None:
+    if settings.enable_trade_plans and _OUTCOMES_AVAILABLE and OutcomeWorker is not None:
         outcome_task = asyncio.create_task(outcome_loop(stop_event))
     if settings.engine_log_sync_enabled:
         engine_log_sync_task = asyncio.create_task(engine_log_sync_loop(stop_event))

@@ -14,7 +14,9 @@ class Settings(BaseSettings):
     owner_timezone: str = "Asia/Makassar"
     chart_time_offset_hours: int = 3
 
-    enable_market_context: bool = True
+    signalthrottle_mode: str = "phase1"
+    enable_trade_plans: bool = False
+    enable_market_context: bool = False
 
     ohlc_provider: str = "finnhub"
     finnhub_api_key: str | None = None
@@ -25,8 +27,11 @@ class Settings(BaseSettings):
     engine_log_source_url: str | None = None
     engine_log_source_token: str | None = None
     engine_log_source_service: str = "wolf15-engine"
+    engine_log_fetch_filter: str | None = None
+    engine_log_sync_overlap_seconds: int = 300
     engine_log_sync_interval_seconds: int = 300
     engine_log_sync_timeout_seconds: int = 30
+    daily_report_window: str = "utc_day"
 
     min_radar_minutes: float = 5.0
     min_strong_minutes: float = 14.0

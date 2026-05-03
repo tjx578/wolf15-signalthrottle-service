@@ -9,7 +9,7 @@
   <p class="section-status"><strong>Section degraded:</strong> {{ section_error.message }}</p>
   {% endif %}
   <h2>Engine Logs Daily</h2>
-  <p>Observability harian untuk raw extracted logs, parsed signal events, dan promosi ke pressure blocks.</p>
+  <p>Phase 1 UTC daily report untuk raw engine logs, SignalThrottle valid, clean runs, dan theme pressure.</p>
 
   <div class="detail-grid">
     <div class="detail-item">
@@ -19,6 +19,10 @@
     <div class="detail-item">
       <span class="label">Owner Timezone</span>
       <strong>{{ window.owner_timezone }}</strong>
+    </div>
+    <div class="detail-item">
+      <span class="label">Window Rule</span>
+      <strong>{{ window.window_rule }}</strong>
     </div>
     <div class="detail-item">
       <span class="label">Window Start UTC</span>
@@ -33,8 +37,24 @@
       <strong>{{ summary.raw_extracted_logs }}</strong>
     </div>
     <div class="detail-item">
+      <span class="label">Total Engine Logs</span>
+      <strong>{{ summary.total_engine_logs }}</strong>
+    </div>
+    <div class="detail-item">
       <span class="label">Parsed Signal Events</span>
       <strong>{{ summary.parsed_signal_events }}</strong>
+    </div>
+    <div class="detail-item">
+      <span class="label">SignalThrottle Valid</span>
+      <strong>{{ summary.signalthrottle_valid }}</strong>
+    </div>
+    <div class="detail-item">
+      <span class="label">SignalThrottle Invalid</span>
+      <strong>{{ summary.signalthrottle_invalid }}</strong>
+    </div>
+    <div class="detail-item">
+      <span class="label">Non SignalThrottle Logs</span>
+      <strong>{{ summary.non_signalthrottle_logs }}</strong>
     </div>
     <div class="detail-item">
       <span class="label">Sync Events</span>
@@ -56,7 +76,89 @@
       <span class="label">Dashboard Signals</span>
       <strong>{{ summary.dashboard_signals }}</strong>
     </div>
+    <div class="detail-item">
+      <span class="label">Total Pair</span>
+      <strong>{{ summary.total_pairs }}</strong>
+    </div>
+    <div class="detail-item">
+      <span class="label">Consecutive Runs</span>
+      <strong>{{ summary.consecutive_runs }}</strong>
+    </div>
+    <div class="detail-item">
+      <span class="label">Runs >=5m</span>
+      <strong>{{ summary.runs_ge_5m }}</strong>
+    </div>
   </div>
+
+  <section class="panel">
+    <h3>Theme Alerts</h3>
+    {% if summary.themes %}
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Theme</th>
+            <th>Events</th>
+            <th>Leaders</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in summary.themes %}
+          <tr>
+            <td>{{ row.theme_cluster }}</td>
+            <td>{{ row.event_count }}</td>
+            <td>{{ row.leaders | join(', ') }}</td>
+            <td>{{ row.status }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="empty">No theme alerts in this daily window.</p>
+    {% endif %}
+  </section>
+
+  <section class="panel">
+    <h3>Clean Runs >=5m</h3>
+    {% if summary.clean_runs %}
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Symbol</th>
+            <th>UTC</th>
+            <th>Events</th>
+            <th>Duration</th>
+            <th>Density</th>
+            <th>Temperature</th>
+            <th>Max Gap</th>
+            <th>Interrupted By</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in summary.clean_runs %}
+          <tr>
+            <td>{{ row.symbol }}</td>
+            <td>{{ row.start_utc }} -> {{ row.end_utc }}</td>
+            <td>{{ row.event_count }}</td>
+            <td>{{ row.duration_minutes }}m</td>
+            <td>{{ row.density_per_minute }}/m</td>
+            <td>{{ row.pressure_temperature }}</td>
+            <td>{{ row.max_gap_seconds or '-' }}</td>
+            <td>{{ row.interrupted_by or '-' }}</td>
+            <td>{{ row.status }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="empty">No clean runs reached the Phase 1 minimum duration.</p>
+    {% endif %}
+  </section>
 
   <section class="panel">
     <h3>Per Symbol Summary</h3>
@@ -71,6 +173,7 @@
             <th>Webhook</th>
             <th>First Event UTC</th>
             <th>Last Event UTC</th>
+            <th>Theme</th>
             <th>Promoted Blocks</th>
             <th>Best Candidate Grade</th>
             <th>Failure Reason</th>
@@ -85,6 +188,7 @@
             <td>{{ row.webhook_event_count }}</td>
             <td>{{ row.first_event_utc or '-' }}</td>
             <td>{{ row.last_event_utc or '-' }}</td>
+            <td>{{ row.theme_cluster or '-' }}</td>
             <td>{{ row.promoted_blocks }}</td>
             <td>{{ row.best_candidate_grade or '-' }}</td>
             <td>{{ row.failure_reason or '-' }}</td>

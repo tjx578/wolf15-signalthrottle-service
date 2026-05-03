@@ -55,6 +55,7 @@ def test_enrich_records_finnhub_key_missing(monkeypatch) -> None:
     """B+ block + missing API key must persist FINNHUB_KEY_MISSING with
     a human-readable pending_reason and PENDING_MARKET_CONTEXT trade plan
     status. This is the dashboard contract: never a silent dash."""
+    monkeypatch.setattr(market_context_module.settings, "enable_trade_plans", True)
     monkeypatch.setattr(market_context_module.settings, "enable_market_context", True)
     monkeypatch.setattr(market_context_module.settings, "finnhub_api_key", "")
 
@@ -75,6 +76,7 @@ def test_enrich_records_finnhub_key_missing(monkeypatch) -> None:
 def test_enrich_records_disabled(monkeypatch) -> None:
     """When market context is globally disabled, an eligible block still
     needs an audit row so the dashboard knows the pending reason."""
+    monkeypatch.setattr(market_context_module.settings, "enable_trade_plans", True)
     monkeypatch.setattr(market_context_module.settings, "enable_market_context", False)
 
     repo = FakeRepo()
@@ -97,6 +99,7 @@ def test_enrich_marks_ineligible_grade_as_not_requested(monkeypatch) -> None:
     """A C-grade block is below threshold; the audit row should declare
     NOT_REQUESTED / NOT_REQUIRED so the dashboard never shows it as
     pending."""
+    monkeypatch.setattr(market_context_module.settings, "enable_trade_plans", True)
     monkeypatch.setattr(market_context_module.settings, "enable_market_context", True)
     monkeypatch.setattr(market_context_module.settings, "finnhub_api_key", "x")
 
@@ -112,5 +115,26 @@ def test_enrich_marks_ineligible_grade_as_not_requested(monkeypatch) -> None:
             "market_context_status": "NOT_REQUESTED",
             "trade_plan_status": "NOT_REQUIRED",
             "pending_reason": None,
+        }
+    ]
+
+
+def test_enrich_records_phase1_trade_plans_disabled(monkeypatch) -> None:
+    monkeypatch.setattr(market_context_module.settings, "enable_trade_plans", False)
+    monkeypatch.setattr(market_context_module.settings, "enable_market_context", True)
+    monkeypatch.setattr(market_context_module.settings, "finnhub_api_key", "x")
+
+    repo = FakeRepo()
+    block = {"id": 44, "symbol": "EURAUD", "pressure_grade": "A"}
+
+    result = asyncio.run(enrich_block_with_market_context(block, repo=repo))
+
+    assert result is None
+    assert repo.marks == [
+        {
+            "block_id": 44,
+            "market_context_status": "DISABLED",
+            "trade_plan_status": "NOT_REQUIRED",
+            "pending_reason": "TRADE_PLANS_DISABLED_PHASE1",
         }
     ]

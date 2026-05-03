@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from fastapi.testclient import TestClient
 
 import app.api.routes_signals as routes_signals
@@ -356,7 +358,12 @@ def test_latest_signals_invalid_bucket_falls_back_to_all(monkeypatch) -> None:
 
 def test_engine_logs_daily_api_returns_observability_summary(monkeypatch) -> None:
     class EngineLogsRepo:
+        last_start_utc = None
+        last_end_utc = None
+
         async def get_engine_logs_daily_summary(self, *, start_utc, end_utc) -> dict:
+            self.__class__.last_start_utc = start_utc
+            self.__class__.last_end_utc = end_utc
             return {
                 "raw_extracted_logs": 182,
                 "parsed_signal_events": 182,
@@ -389,11 +396,16 @@ def test_engine_logs_daily_api_returns_observability_summary(monkeypatch) -> Non
     app = create_app()
     client = TestClient(app)
 
-    response = client.get("/signals/engine-logs/daily")
+    response = client.get("/signals/engine-logs/daily?date=2026-05-01")
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["view_mode"] == "PAIR_FILTERED_DIAGNOSTIC"
+    assert payload["view_mode"] == "PHASE1_UTC_DAILY_REPORT"
+    assert payload["window"]["window_rule"] == "[start_utc, end_utc)"
+    assert payload["window"]["start_utc"] == "2026-05-01T00:00:00+00:00"
+    assert payload["window"]["end_utc"] == "2026-05-02T00:00:00+00:00"
+    assert EngineLogsRepo.last_start_utc == datetime(2026, 5, 1, 0, 0, tzinfo=timezone.utc)
+    assert EngineLogsRepo.last_end_utc == datetime(2026, 5, 2, 0, 0, tzinfo=timezone.utc)
     assert payload["raw_extracted_logs"] == 182
     assert payload["symbols"][0]["symbol"] == "NZDCHF"
     assert payload["symbols"][0]["failure_reason"] == "PARSED_ONLY_NO_PROMOTION"

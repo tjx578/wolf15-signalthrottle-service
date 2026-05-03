@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable
-from datetime import datetime, time, timezone
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -12,7 +12,7 @@ from fastapi.templating import Jinja2Templates
 from .auth import require_dashboard_auth
 from ..config import settings
 from ..dashboard.view_models import build_active_block_view, build_trade_signal_view
-from ..ingestion.engine_log_sync import owner_day_window_utc
+from ..ingestion.engine_log_sync import utc_day_bounds
 from ..storage.repositories import SignalRepository
 
 logger = logging.getLogger(__name__)
@@ -136,6 +136,30 @@ HOME_SECTION_ORDER = [
     "latest_outcomes",
 ]
 
+PHASE2_DASHBOARD_SECTIONS = {
+    "ready_trade_plans",
+    "outcome_summary",
+    "outcomes_by_phase",
+    "outcomes_by_grade",
+    "outcomes_by_h4_context",
+    "outcomes_by_reason_code",
+    "latest_outcomes",
+}
+
+
+def _phase1_mode() -> bool:
+    return settings.signalthrottle_mode.lower() == "phase1"
+
+
+def _home_section_order() -> list[str]:
+    if not _phase1_mode():
+        return HOME_SECTION_ORDER
+    return [
+        section_name
+        for section_name in HOME_SECTION_ORDER
+        if section_name not in PHASE2_DASHBOARD_SECTIONS
+    ]
+
 
 async def _load_section(loader, fallback, section_name: str, section_errors: list[dict[str, str]]):
     try:
@@ -174,6 +198,7 @@ async def _load_dashboard_fragment_context(
     return spec["template"], {
         spec["context_key"]: value,
         "section_error": section_errors[0] if section_errors else None,
+        "phase1_mode": _phase1_mode(),
     }
 
 
@@ -181,13 +206,14 @@ async def _load_dashboard_home_context(repo: SignalRepository) -> dict[str, Any]
     context: dict[str, Any] = {}
     section_errors: list[dict[str, str]] = []
 
-    for section_name in HOME_SECTION_ORDER:
+    for section_name in _home_section_order():
         _, fragment_context = await _load_dashboard_fragment_context(repo, section_name)
         context.update({k: v for k, v in fragment_context.items() if k != "section_error"})
         if fragment_context.get("section_error"):
             section_errors.append(fragment_context["section_error"])
 
     context["section_errors"] = section_errors
+    context["phase1_mode"] = _phase1_mode()
     return context
 
 
@@ -195,21 +221,22 @@ async def _load_engine_logs_daily_context(date: str | None) -> dict[str, Any]:
     repo = SignalRepository()
     if date:
         day = datetime.fromisoformat(date).date()
-        owner_now = datetime.combine(day, time.max, tzinfo=timezone.utc)
     else:
-        owner_now = datetime.now(timezone.utc)
+        day = datetime.now(timezone.utc).date()
 
-    start_utc, end_utc = owner_day_window_utc(owner_now, settings.owner_timezone)
+    start_utc, end_utc = utc_day_bounds(day)
     summary = await repo.get_engine_logs_daily_summary(start_utc=start_utc, end_utc=end_utc)
     return {
         "summary": summary,
-        "selected_date": date or owner_now.date().isoformat(),
+        "selected_date": day.isoformat(),
         "window": {
             "start_utc": start_utc.isoformat(),
             "end_utc": end_utc.isoformat(),
+            "window_rule": "[start_utc, end_utc)",
             "owner_timezone": settings.owner_timezone,
         },
         "section_error": None,
+        "phase1_mode": _phase1_mode(),
     }
 
 
@@ -242,6 +269,7 @@ async def signal_detail_page(request: Request, signal_id: int):
         "signal_detail.html",
         {
             "signal": build_trade_signal_view(signal),
+            "phase1_mode": _phase1_mode(),
         },
     )
 
@@ -257,6 +285,7 @@ async def series_detail_page(request: Request, symbol: str):
         {
             "detail": detail,
             "symbol": symbol,
+            "phase1_mode": _phase1_mode(),
         },
     )
 

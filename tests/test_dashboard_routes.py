@@ -407,21 +407,21 @@ def test_dashboard_watchlist_renders_pending_pressure_without_trade_plan(monkeyp
     assert response.status_code == 200
     assert 'hx-get="/partials/stats"' in response.text
     assert 'hx-get="/partials/watchlist_signals"' in response.text
-    assert 'hx-get="/partials/latest_outcomes"' in response.text
-    assert 'hx-trigger="every 120s"' in response.text
-    assert 'data-refresh-when-visible="true"' in response.text
+    assert 'hx-get="/partials/latest_outcomes"' not in response.text
+    assert 'hx-trigger="every 120s"' not in response.text
+    assert 'data-refresh-when-visible="true"' not in response.text
     assert 'data-auto-refresh-seconds="30"' not in response.text
     assert 'Dashboard</span>' in response.text
     assert 'Engine Logs</span>' in response.text
-    assert 'Outcomes</span>' in response.text
+    assert 'Outcomes</span>' not in response.text
     assert 'Debug</span>' in response.text
     assert '/debug/sync' in response.text
     assert '/debug/schema' in response.text
     assert "Radar / Below Threshold" in response.text
     assert "Failed / Below Minimum" in response.text
-    assert "Watchlist / Trade Plan Pending" in response.text
+    assert "Priority / Contextual Signals" in response.text
     assert "/engine-logs/daily" in response.text
-    assert "Trade Plan Ready" in response.text
+    assert "Trade Plan Ready" not in response.text
     assert "GBPUSD" in response.text
     assert "NZDCHF" in response.text
     assert "FAILED_MIN_DURATION" in response.text
@@ -437,19 +437,19 @@ def test_dashboard_watchlist_renders_pending_pressure_without_trade_plan(monkeyp
     assert "HIGH_DENSITY" in response.text
     assert "Chain Grade" in response.text
     assert "Execution Mode" in response.text
-    assert "INSTANT_EXECUTION_CANDIDATE" in response.text
+    assert "INSTANT_EXECUTION_CANDIDATE" not in response.text
     assert "/series-detail/GBPUSD" in response.text
-    assert "/series-detail/USDJPY" in response.text
-    assert "trade_plan_ready" in response.text
-    assert "YES" in response.text
-    assert "Performance by H4 Context" in response.text
-    assert "FAILED_BREAKOUT_ACCEPTANCE" in response.text
-    assert "RANGE_EDGE_COMPRESSION" in response.text
-    assert "Performance by Reason Code" in response.text
-    assert "UPPER_RANGE_FAILED_EXPANSION" in response.text
-    assert "UPPER_RESISTANCE_REJECTION" in response.text
-    assert "Best H4 Context" in response.text
-    assert "Worst H4 Context" in response.text
+    assert "/series-detail/USDJPY" not in response.text
+    assert "trade_plan_ready" not in response.text
+    assert "YES" not in response.text
+    assert "Performance by H4 Context" not in response.text
+    assert "FAILED_BREAKOUT_ACCEPTANCE" not in response.text
+    assert "RANGE_EDGE_COMPRESSION" not in response.text
+    assert "Performance by Reason Code" not in response.text
+    assert "UPPER_RANGE_FAILED_EXPANSION" not in response.text
+    assert "UPPER_RESISTANCE_REJECTION" not in response.text
+    assert "Best H4 Context" not in response.text
+    assert "Worst H4 Context" not in response.text
 
 
 def test_signal_detail_shows_rationale_summary(monkeypatch) -> None:
@@ -546,7 +546,7 @@ def test_dashboard_partial_section_renders_fragment(monkeypatch) -> None:
     response = client.get("/partials/watchlist_signals")
 
     assert response.status_code == 200
-    assert "Watchlist / Trade Plan Pending" in response.text
+    assert "Priority / Contextual Signals" in response.text
     assert "GBPUSD" in response.text
     assert 'hx-get="/partials/watchlist_signals"' in response.text
     assert 'data-refresh-when-visible="true"' not in response.text
@@ -601,14 +601,14 @@ def test_dashboard_keeps_signals_when_outcome_queries_fail(monkeypatch) -> None:
     response = client.get("/")
 
     assert response.status_code == 200
-    assert "Dashboard Degraded" in response.text
-    assert "signal_outcomes table missing" in response.text
+    assert "Dashboard Degraded" not in response.text
+    assert "signal_outcomes table missing" not in response.text
     assert "GBPUSD" in response.text
     assert "watchlist_trade_plan_pending" in response.text
-    assert "No outcome data yet" in response.text
-    assert "No H4 context outcome data yet" in response.text
-    assert "No reason-code outcome data yet" in response.text
-    assert "Best H4 Context" in response.text
+    assert "No outcome data yet" not in response.text
+    assert "No H4 context outcome data yet" not in response.text
+    assert "No reason-code outcome data yet" not in response.text
+    assert "Best H4 Context" not in response.text
 
 
 def test_dashboard_requires_basic_auth_when_configured(monkeypatch) -> None:

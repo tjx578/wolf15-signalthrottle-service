@@ -285,7 +285,7 @@ def test_merge_pressure_series_marks_replay_gap_family_as_continuity_split() -> 
     assert merged[0]["series_reason"] == "SPLIT_BY_CONTINUITY_GAP"
 
 
-def test_upsert_live_block_from_event_splits_on_continuity_gap_but_not_hard_gap(monkeypatch) -> None:
+def test_upsert_live_block_from_event_keeps_same_pair_gap_inside_block(monkeypatch) -> None:
     class FakeRepo:
         def __init__(self) -> None:
             self.calls: list[tuple[str, Any]] = []
@@ -351,12 +351,13 @@ def test_upsert_live_block_from_event_splits_on_continuity_gap_but_not_hard_gap(
     )
 
     assert result == {"id": 11, "action": "created"}
-    assert ("continuity_split", 10) in fake_repo.calls
+    assert not any(call[0] == "continuity_split" for call in fake_repo.calls)
     assert not any(call[0] == "hard_finalize" for call in fake_repo.calls)
     upsert_call = next(call for call in fake_repo.calls if call[0] == "upsert_active_block")
     upsert_kwargs = cast(dict[str, Any], upsert_call[1])
-    assert upsert_kwargs["start_utc"] == event.timestamp_utc
-    assert upsert_kwargs["previous_block_id"] == 10
+    assert upsert_kwargs["start_utc"] == datetime(2026, 4, 22, 13, 0, 28, tzinfo=timezone.utc)
+    assert upsert_kwargs["previous_block_id"] == 7
+    assert upsert_kwargs["max_gap_seconds"] == 359.0
 
 
 def test_merge_pressure_series_dedupes_identical_replay_rows_and_preserves_max_event_count() -> None:
@@ -769,11 +770,21 @@ def test_get_signal_series_detail_dedupes_exact_raw_blocks(monkeypatch) -> None:
 
 
 def test_get_engine_logs_daily_summary_reports_source_paths_and_promotion(monkeypatch) -> None:
-    totals_row = {
-        "raw_extracted_logs": 5,
+    raw_totals_row = {
+        "total_engine_logs": 5,
+        "signalthrottle_valid": 5,
+        "signalthrottle_invalid": 0,
+        "non_signalthrottle_logs": 0,
+        "first_raw_log_utc": datetime(2026, 4, 28, 8, 47, 30, tzinfo=timezone.utc),
+        "last_raw_log_utc": datetime(2026, 4, 28, 9, 7, 22, tzinfo=timezone.utc),
+    }
+    signal_totals_row = {
+        "parsed_signal_events": 5,
         "sync_events": 2,
         "webhook_events": 3,
         "engine_labeled_events": 5,
+        "first_signal_event_utc": datetime(2026, 4, 28, 8, 47, 30, tzinfo=timezone.utc),
+        "last_signal_event_utc": datetime(2026, 4, 28, 9, 7, 22, tzinfo=timezone.utc),
     }
     promoted_total_row = {"promoted_pressure_blocks": 1}
     dashboard_total_row = {"dashboard_signals": 1}
@@ -794,6 +805,26 @@ def test_get_engine_logs_daily_summary_reports_source_paths_and_promotion(monkey
             "promoted_blocks": 1,
             "best_candidate_grade": "B+",
         }
+    ]
+    event_rows = [
+        {
+            "symbol": "NZDCHF",
+            "event_type": "SIGNAL_THROTTLE",
+            "timestamp_utc": datetime(2026, 4, 28, 8, 47, 30, tzinfo=timezone.utc),
+            "timestamp_wita": None,
+            "chart_time": None,
+            "raw_message": "start",
+            "source_service": "wolf15-engine",
+        },
+        {
+            "symbol": "NZDCHF",
+            "event_type": "SIGNAL_THROTTLE",
+            "timestamp_utc": datetime(2026, 4, 28, 9, 7, 22, tzinfo=timezone.utc),
+            "timestamp_wita": None,
+            "chart_time": None,
+            "raw_message": "end",
+            "source_service": "wolf15-engine",
+        },
     ]
 
     class FakeCursor:
@@ -816,8 +847,13 @@ def test_get_engine_logs_daily_summary_reports_source_paths_and_promotion(monkey
 
     cursors = [
         FakeCursor(
-            fetchone_responses=[totals_row, promoted_total_row, dashboard_total_row],
-            fetchall_responses=[symbol_rows, promoted_rows],
+            fetchone_responses=[
+                raw_totals_row,
+                signal_totals_row,
+                promoted_total_row,
+                dashboard_total_row,
+            ],
+            fetchall_responses=[symbol_rows, promoted_rows, event_rows],
         ),
     ]
 
@@ -836,9 +872,14 @@ def test_get_engine_logs_daily_summary_reports_source_paths_and_promotion(monkey
     )
 
     assert summary["raw_extracted_logs"] == 5
+    assert summary["total_engine_logs"] == 5
+    assert summary["signalthrottle_valid"] == 5
     assert summary["sync_events"] == 2
     assert summary["webhook_events"] == 3
     assert summary["promoted_pressure_blocks"] == 1
     assert summary["dashboard_signals"] == 1
+    assert summary["consecutive_runs"] == 1
+    assert summary["runs_ge_5m"] == 1
     assert summary["symbols"][0]["symbol"] == "NZDCHF"
+    assert summary["symbols"][0]["theme_cluster"] == "NZD_CROSS_PRESSURE"
     assert summary["symbols"][0]["failure_reason"] is None

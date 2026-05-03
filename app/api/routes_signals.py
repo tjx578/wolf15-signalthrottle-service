@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime, time, timezone
+from datetime import datetime, timezone
 
 from fastapi import APIRouter
 
 from app.config import settings
-from app.ingestion.engine_log_sync import owner_day_window_utc
+from app.ingestion.engine_log_sync import utc_day_bounds
 
 from app.storage.repositories import SignalRepository
 
@@ -80,18 +80,18 @@ async def engine_logs_daily(date: str | None = None):
     repo = SignalRepository()
     if date:
         day = datetime.fromisoformat(date).date()
-        owner_now = datetime.combine(day, time.max, tzinfo=timezone.utc)
     else:
-        owner_now = datetime.now(timezone.utc)
+        day = datetime.now(timezone.utc).date()
 
-    start_utc, end_utc = owner_day_window_utc(owner_now, settings.owner_timezone)
+    start_utc, end_utc = utc_day_bounds(day)
     summary = await repo.get_engine_logs_daily_summary(start_utc=start_utc, end_utc=end_utc)
     return {
-        "date": (date or owner_now.date().isoformat()),
-        "view_mode": "PAIR_FILTERED_DIAGNOSTIC",
+        "date": day.isoformat(),
+        "view_mode": "PHASE1_UTC_DAILY_REPORT",
         "window": {
             "start_utc": start_utc.isoformat(),
             "end_utc": end_utc.isoformat(),
+            "window_rule": "[start_utc, end_utc)",
             "owner_timezone": settings.owner_timezone,
         },
         **summary,

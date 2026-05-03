@@ -1,5 +1,5 @@
 <section id="watchlist-signals" class="panel" hx-get="/partials/watchlist_signals" hx-trigger="every 30s" hx-swap="outerHTML">
-  <h2>Watchlist / Trade Plan Pending</h2>
+  <h2>{% if phase1_mode %}Priority / Contextual Signals{% else %}Watchlist / Trade Plan Pending{% endif %}</h2>
   {% if section_error %}
   <p class="section-status"><strong>Section degraded:</strong> {{ section_error.message }}</p>
   {% endif %}
@@ -51,6 +51,6 @@
     </table>
   </div>
   {% else %}
-  <p class="empty">No watchlist signals pending trade plan</p>
+  <p class="empty">{% if phase1_mode %}No priority/contextual signals in this window{% else %}No watchlist signals pending trade plan{% endif %}</p>
   {% endif %}
 </section>

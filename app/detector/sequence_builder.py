@@ -25,17 +25,17 @@ def group_by_symbol(events: list[LogEvent]) -> dict[str, list[LogEvent]]:
 
 def build_canonical_sequences(
     events: list[LogEvent],
-    max_gap_seconds: int = 300,
+    max_gap_seconds: int | None = None,
 ) -> list[list[LogEvent]]:
     """Split a global chronological event stream into canonical sequences.
 
     Rules (golden reference):
       - sort all events by timestamp_utc (stable, global stream)
-      - extend the current sequence iff:
-          * symbol matches the previous event's symbol, AND
-          * gap to previous event <= max_gap_seconds
+      - extend the current sequence iff symbol matches the previous event
       - otherwise close the current sequence and start a new one
         (this captures "pair-other muncul → block lama selesai")
+      - in Phase 1, same-pair gap size is retained as pressure character
+        rather than used as a block splitter
 
     Returns a list of sequences (each a non-empty list of LogEvent).
     """
@@ -49,7 +49,9 @@ def build_canonical_sequences(
     for event in events_sorted[1:]:
         prev = current[-1]
         gap = (event.timestamp_utc - prev.timestamp_utc).total_seconds()
-        if event.symbol == prev.symbol and gap <= max_gap_seconds:
+        if event.symbol == prev.symbol and (
+            max_gap_seconds is None or gap <= max_gap_seconds
+        ):
             current.append(event)
         else:
             sequences.append(current)

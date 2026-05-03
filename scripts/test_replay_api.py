@@ -3,6 +3,8 @@ import asyncio
 import httpx
 from datetime import datetime
 
+__test__ = False
+
 URL = "https://wolf15-signalthrottle-service-production.up.railway.app"
 
 # Sample USDJPY B+ pressure logs (70 lines, 5.75 minutes)

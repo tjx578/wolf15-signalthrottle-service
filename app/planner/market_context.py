@@ -92,6 +92,11 @@ async def enrich_block_with_market_context(
                 "Failed to persist market_context_status for block %s", block_id
             )
 
+    if not settings.enable_trade_plans:
+        if eligible:
+            await _mark("DISABLED", "NOT_REQUIRED", "TRADE_PLANS_DISABLED_PHASE1")
+        return None
+
     if not settings.enable_market_context:
         if eligible:
             await _mark("DISABLED", "PENDING_MARKET_CONTEXT", "MARKET_CONTEXT_DISABLED")

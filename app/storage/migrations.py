@@ -15,6 +15,11 @@ _PRESSURE_BLOCKS_REQUIRED_COLUMNS = (
     "market_context_status",
     "trade_plan_status",
     "pending_reason",
+    "block_mode",
+    "pressure_temperature",
+    "wave_count",
+    "interrupted_by",
+    "theme_cluster",
 )
 _PRESSURE_BLOCKS_REQUIRED_INDEXES = (
     "uq_st_pressure_blocks_block_hash",
@@ -40,6 +45,7 @@ async def run_migrations() -> list[dict]:
         _migration_010_cleanup_duplicate_replay_pressure_blocks,
         _migration_011_cleanup_overlapping_replay_pressure_blocks,
         _migration_012_ensure_pressure_series_reason_columns,
+        _migration_013_ensure_phase1_raw_logs_and_block_fields,
     ]
     results: list[dict] = []
     for m in migrations:
@@ -620,3 +626,81 @@ async def _migration_012_ensure_pressure_series_reason_columns() -> None:
     await _ensure_column("pressure_series", "best_valid_block_grade", "TEXT")
     await _ensure_column("pressure_series", "series_reason", "TEXT")
     logger.info("migration_012: pressure_series reason columns ensured")
+
+
+async def _migration_013_ensure_phase1_raw_logs_and_block_fields() -> None:
+    async with get_cursor() as cur:
+        await cur.execute(
+            sql.SQL(
+                """
+                CREATE TABLE IF NOT EXISTS {} (
+                    id BIGSERIAL PRIMARY KEY,
+                    timestamp_utc TIMESTAMPTZ,
+                    message TEXT NOT NULL,
+                    severity TEXT,
+                    attributes JSONB,
+                    tags JSONB,
+                    source_service TEXT DEFAULT 'wolf15-engine',
+                    source_path TEXT DEFAULT 'engine_log_sync',
+                    log_hash TEXT,
+                    is_signalthrottle BOOLEAN DEFAULT FALSE,
+                    parse_status TEXT,
+                    symbol TEXT,
+                    signal_count INT,
+                    window_seconds INT,
+                    max_signals INT,
+                    raw_payload JSONB,
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                )
+                """
+            ).format(sql.Identifier(settings.db_schema, "engine_log_entries"))
+        )
+
+    raw_log_columns = [
+        ("timestamp_utc", "TIMESTAMPTZ"),
+        ("message", "TEXT"),
+        ("severity", "TEXT"),
+        ("attributes", "JSONB"),
+        ("tags", "JSONB"),
+        ("source_service", "TEXT DEFAULT 'wolf15-engine'"),
+        ("source_path", "TEXT DEFAULT 'engine_log_sync'"),
+        ("log_hash", "TEXT"),
+        ("is_signalthrottle", "BOOLEAN DEFAULT FALSE"),
+        ("parse_status", "TEXT"),
+        ("symbol", "TEXT"),
+        ("signal_count", "INT"),
+        ("window_seconds", "INT"),
+        ("max_signals", "INT"),
+        ("raw_payload", "JSONB"),
+        ("created_at", "TIMESTAMPTZ DEFAULT NOW()"),
+    ]
+    for column_name, type_sql in raw_log_columns:
+        await _ensure_column("engine_log_entries", column_name, type_sql)
+
+    await _ensure_unique_index(
+        "idx_engine_log_entries_log_hash",
+        "engine_log_entries",
+        "log_hash",
+    )
+    await _ensure_index(
+        "idx_engine_log_entries_time",
+        "engine_log_entries",
+        "timestamp_utc DESC",
+    )
+    await _ensure_index(
+        "idx_engine_log_entries_signal_time",
+        "engine_log_entries",
+        "is_signalthrottle, timestamp_utc DESC",
+    )
+
+    block_columns = [
+        ("block_mode", "TEXT DEFAULT 'SAME_PAIR_SEQUENCE'"),
+        ("pressure_temperature", "TEXT"),
+        ("wave_count", "INT DEFAULT 1"),
+        ("interrupted_by", "TEXT"),
+        ("theme_cluster", "TEXT"),
+    ]
+    for column_name, type_sql in block_columns:
+        await _ensure_column("pressure_blocks", column_name, type_sql)
+
+    logger.info("migration_013: phase1 raw logs and block metadata ensured")

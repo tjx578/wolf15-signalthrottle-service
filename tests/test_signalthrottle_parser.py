@@ -13,6 +13,7 @@ def test_parse_standard_message():
     assert result.symbol == "USDJPY"
     assert result.count == 3
     assert result.window_seconds == 300
+    assert result.max_signals == 3
     assert result.timestamp_utc == ts
 
 

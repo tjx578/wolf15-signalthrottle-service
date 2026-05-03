@@ -24,6 +24,37 @@ ON signalthrottle.signal_events(event_hash);
 
 -- -------------------------------------------------------
 
+CREATE TABLE IF NOT EXISTS signalthrottle.engine_log_entries (
+    id BIGSERIAL PRIMARY KEY,
+    timestamp_utc TIMESTAMPTZ,
+    message TEXT NOT NULL,
+    severity TEXT,
+    attributes JSONB,
+    tags JSONB,
+    source_service TEXT DEFAULT 'wolf15-engine',
+    source_path TEXT DEFAULT 'engine_log_sync',
+    log_hash TEXT,
+    is_signalthrottle BOOLEAN DEFAULT FALSE,
+    parse_status TEXT,
+    symbol TEXT,
+    signal_count INT,
+    window_seconds INT,
+    max_signals INT,
+    raw_payload JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_engine_log_entries_log_hash
+ON signalthrottle.engine_log_entries(log_hash);
+
+CREATE INDEX IF NOT EXISTS idx_engine_log_entries_time
+ON signalthrottle.engine_log_entries(timestamp_utc DESC);
+
+CREATE INDEX IF NOT EXISTS idx_engine_log_entries_signal_time
+ON signalthrottle.engine_log_entries(is_signalthrottle, timestamp_utc DESC);
+
+-- -------------------------------------------------------
+
 CREATE TABLE IF NOT EXISTS signalthrottle.pressure_blocks (
     id BIGSERIAL PRIMARY KEY,
     symbol TEXT NOT NULL,
@@ -47,6 +78,11 @@ CREATE TABLE IF NOT EXISTS signalthrottle.pressure_blocks (
     block_relation TEXT,
     previous_block_id BIGINT,
     finalize_mode TEXT,
+    block_mode TEXT DEFAULT 'SAME_PAIR_SEQUENCE',
+    pressure_temperature TEXT,
+    wave_count INT DEFAULT 1,
+    interrupted_by TEXT,
+    theme_cluster TEXT,
 
     block_hash TEXT,
 

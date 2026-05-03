@@ -119,7 +119,7 @@ async def fake_enrich_block_with_market_context(block: dict, repo: FakeSignalRep
     return plan
 
 
-def test_replay_logs_creates_trade_plan_and_latest_signal(monkeypatch) -> None:
+def test_replay_logs_creates_phase1_block_without_trade_plan(monkeypatch) -> None:
     FakeSignalRepository.reset()
     monkeypatch.setattr(lifecycle, "init_db", _noop)
     monkeypatch.setattr(lifecycle, "run_migrations", _noop)
@@ -141,16 +141,15 @@ def test_replay_logs_creates_trade_plan_and_latest_signal(monkeypatch) -> None:
     replay_payload = replay_response.json()
     assert replay_payload["status"] == "processed"
     assert replay_payload["canonical_blocks_detected"] == 1
-    assert replay_payload["trade_plans_created"] == 1
+    assert replay_payload["trade_plans_created"] == 0
     assert replay_payload["blocks"][0]["pressure_grade"] == "B+"
-    assert replay_payload["blocks"][0]["trade_plan_created"] is True
+    assert replay_payload["blocks"][0]["trade_plan_created"] is False
+    assert replay_payload["blocks"][0]["block_mode"] == "SAME_PAIR_SEQUENCE"
 
     latest_response = client.get("/signals/latest")
     assert latest_response.status_code == 200
     latest_payload = latest_response.json()
-    assert latest_payload["count"] == 1
-    assert latest_payload["signals"][0]["symbol"] == "USDJPY"
-    assert latest_payload["signals"][0]["pressure_grade"] == "B+"
+    assert latest_payload["count"] == 0
 
 
 def test_replay_logs_accepts_structured_json_lines(monkeypatch) -> None:
@@ -181,7 +180,7 @@ def test_replay_logs_accepts_structured_json_lines(monkeypatch) -> None:
     replay_payload = replay_response.json()
     assert replay_payload["status"] == "processed"
     assert replay_payload["events_parsed"] == 2
-    assert replay_payload["canonical_blocks_detected"] == 2
+    assert replay_payload["canonical_blocks_detected"] == 1
     assert replay_payload["blocks"][0]["symbol"] == "GBPUSD"
 
 def test_replay_logs_is_idempotent_at_block_level(monkeypatch) -> None:
@@ -225,7 +224,7 @@ def test_replay_logs_is_idempotent_at_block_level(monkeypatch) -> None:
     assert actions == {"unchanged"}
 
 
-def test_replay_logs_splits_continuity_gap_into_two_blocks_same_family(monkeypatch) -> None:
+def test_replay_logs_keeps_same_pair_gap_inside_one_phase1_block(monkeypatch) -> None:
     FakeSignalRepository.reset()
     monkeypatch.setattr(lifecycle, "init_db", _noop)
     monkeypatch.setattr(lifecycle, "run_migrations", _noop)
@@ -268,9 +267,10 @@ def test_replay_logs_splits_continuity_gap_into_two_blocks_same_family(monkeypat
     assert replay_response.status_code == 200
     replay_payload = replay_response.json()
     assert replay_payload["status"] == "processed"
-    assert replay_payload["canonical_blocks_detected"] == 2
+    assert replay_payload["canonical_blocks_detected"] == 1
     grades = [block["pressure_grade"] for block in replay_payload["blocks"]]
-    assert grades == ["FAILED_MIN_DURATION", "B+"]
+    assert grades == ["C"]
+    assert replay_payload["blocks"][0]["max_gap_seconds"] == 160.0
 
 
 def test_replay_logs_requires_basic_auth_when_configured(monkeypatch) -> None:

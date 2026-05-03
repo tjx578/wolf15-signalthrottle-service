@@ -5,13 +5,19 @@ from datetime import datetime
 from typing import Any
 
 from ..config import settings
+from ..detector.sequence_builder import build_canonical_sequences
 from ..models.log_event import LogEvent
 from ..parser.signalthrottle_parser import parse_signalthrottle
 from ..parser.timestamp_mapper import to_chart_time, to_wita
 from ..scoring.pressure_grader import grade_pressure
 from ..scoring.pressure_metrics import calculate_pressure_metrics
+from ..scoring.phase1_classification import (
+    phase1_signal_status,
+    pressure_temperature as classify_pressure_temperature,
+    theme_cluster as classify_theme_cluster,
+)
 from .postgres import get_cursor
-from ..utils.json_utils import make_event_hash
+from ..utils.json_utils import make_engine_log_hash, make_event_hash
 
 logger = logging.getLogger(__name__)
 
@@ -38,8 +44,19 @@ class SignalRepository:
         async with get_cursor() as cur:
             # Check duplicate
             await cur.execute(
-                "SELECT id FROM signal_events WHERE event_hash = %s",
-                (event_hash,),
+                """
+                SELECT id FROM signal_events
+                WHERE event_hash = %s
+                   OR (
+                        symbol = %s
+                    AND timestamp_utc = %s
+                    AND source_service = %s
+                    AND event_type = %s
+                   )
+                ORDER BY id ASC
+                LIMIT 1
+                """,
+                (event_hash, symbol, timestamp_utc, source_service, event_type),
             )
             existing = await cur.fetchone()
             if existing:
@@ -69,6 +86,70 @@ class SignalRepository:
             assert row is not None
             return {"id": row["id"], "duplicate": False}
 
+    # ----- raw engine logs -----
+
+    async def insert_engine_log_entry(
+        self,
+        *,
+        timestamp_utc: datetime | None,
+        message: str,
+        severity: str | None = None,
+        attributes: Any = None,
+        tags: Any = None,
+        source_service: str = "wolf15-engine",
+        source_path: str = "engine_log_sync",
+        is_signalthrottle: bool = False,
+        parse_status: str | None = None,
+        symbol: str | None = None,
+        signal_count: int | None = None,
+        window_seconds: int | None = None,
+        max_signals: int | None = None,
+        raw_payload: Any = None,
+    ) -> dict:
+        log_hash = make_engine_log_hash(timestamp_utc, message, source_service)
+
+        async with get_cursor() as cur:
+            await cur.execute(
+                "SELECT id FROM engine_log_entries WHERE log_hash = %s",
+                (log_hash,),
+            )
+            existing = await cur.fetchone()
+            if existing:
+                return {"id": existing["id"], "duplicate": True}
+
+            await cur.execute(
+                """
+                INSERT INTO engine_log_entries
+                    (timestamp_utc, message, severity, attributes, tags,
+                     source_service, source_path, log_hash, is_signalthrottle,
+                     parse_status, symbol, signal_count, window_seconds,
+                     max_signals, raw_payload)
+                VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s, %s::jsonb)
+                RETURNING id
+                """,
+                (
+                    timestamp_utc,
+                    message,
+                    severity,
+                    _json_or_none(attributes),
+                    _json_or_none(tags),
+                    source_service,
+                    source_path,
+                    log_hash,
+                    is_signalthrottle,
+                    parse_status,
+                    symbol,
+                    signal_count,
+                    window_seconds,
+                    max_signals,
+                    _json_or_none(raw_payload),
+                ),
+            )
+            row = await cur.fetchone()
+            assert row is not None
+            return {"id": row["id"], "duplicate": False}
+
     # ----- pressure_blocks -----
 
     async def upsert_active_block(
@@ -92,8 +173,17 @@ class SignalRepository:
         previous_block_id: int | None = None,
         finalize_mode: str | None = None,
         last_event_utc: datetime | None = None,
+        block_mode: str = "SAME_PAIR_SEQUENCE",
+        pressure_temperature: str | None = None,
+        wave_count: int = 1,
+        interrupted_by: str | None = None,
+        theme_cluster: str | None = None,
     ) -> dict:
         effective_last_event_utc = last_event_utc or end_utc
+        effective_temperature = pressure_temperature or classify_pressure_temperature(
+            density_per_minute
+        )
+        effective_theme = theme_cluster or classify_theme_cluster(symbol)
         async with get_cursor() as cur:
             # Find existing active block for this symbol
             await cur.execute(
@@ -117,6 +207,11 @@ class SignalRepository:
                         max_gap_seconds = %s, pressure_grade = %s,
                         pressure_status = %s, block_relation = %s,
                         finalize_mode = %s,
+                        block_mode = %s,
+                        pressure_temperature = %s,
+                        wave_count = %s,
+                        interrupted_by = %s,
+                        theme_cluster = %s,
                         updated_at = NOW()
                     WHERE id = %s
                     RETURNING id
@@ -128,7 +223,13 @@ class SignalRepository:
                         density_per_minute, avg_gap_seconds,
                         max_gap_seconds, pressure_grade,
                         pressure_status, block_relation,
-                        finalize_mode, existing["id"],
+                        finalize_mode,
+                        block_mode,
+                        effective_temperature,
+                        wave_count,
+                        interrupted_by,
+                        effective_theme,
+                        existing["id"],
                     ),
                 )
                 row = await cur.fetchone()
@@ -150,8 +251,10 @@ class SignalRepository:
                          duration_minutes, event_count, density_per_minute,
                          avg_gap_seconds, max_gap_seconds,
                          pressure_grade, pressure_status, block_relation,
-                         previous_block_id, finalize_mode, is_active)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,TRUE)
+                         previous_block_id, finalize_mode, block_mode,
+                         pressure_temperature, wave_count, interrupted_by,
+                         theme_cluster, is_active)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,TRUE)
                     RETURNING id
                     """,
                     (
@@ -161,7 +264,9 @@ class SignalRepository:
                         duration_minutes, event_count, density_per_minute,
                         avg_gap_seconds, max_gap_seconds,
                         pressure_grade, pressure_status, block_relation,
-                        previous_block_id, finalize_mode,
+                        previous_block_id, finalize_mode, block_mode,
+                        effective_temperature, wave_count, interrupted_by,
+                        effective_theme,
                     ),
                 )
                 row = await cur.fetchone()
@@ -252,12 +357,13 @@ class SignalRepository:
                 SET is_active = FALSE,
                     pressure_status = 'SOFT_FINALIZED',
                     finalize_mode = 'PAIR_REPLACEMENT',
+                    interrupted_by = %s,
                     updated_at = NOW()
                 WHERE is_active = TRUE
                   AND symbol <> %s
                 RETURNING id, symbol
                 """,
-                (symbol,),
+                (symbol, symbol),
             )
             rows = await cur.fetchall()
         for row in rows:
@@ -285,6 +391,11 @@ class SignalRepository:
         block_relation: str | None = None,
         previous_block_id: int | None = None,
         finalize_mode: str | None = None,
+        block_mode: str = "SAME_PAIR_SEQUENCE",
+        pressure_temperature: str | None = None,
+        wave_count: int = 1,
+        interrupted_by: str | None = None,
+        theme_cluster: str | None = None,
     ) -> dict:
         """Idempotent block upsert keyed on canonical block_hash.
 
@@ -293,6 +404,10 @@ class SignalRepository:
         is forced to FALSE because hash-based writes only happen for
         finalized canonical sequences (replay path).
         """
+        effective_temperature = pressure_temperature or classify_pressure_temperature(
+            density_per_minute
+        )
+        effective_theme = theme_cluster or classify_theme_cluster(symbol)
         async with get_cursor() as cur:
             await cur.execute(
                 """
@@ -316,6 +431,9 @@ class SignalRepository:
                         max_gap_seconds = %s, pressure_grade = %s,
                         pressure_status = %s, block_relation = %s,
                         previous_block_id = %s, finalize_mode = %s,
+                        block_mode = %s, pressure_temperature = %s,
+                        wave_count = %s, interrupted_by = %s,
+                        theme_cluster = %s,
                         is_active = FALSE,
                         updated_at = NOW()
                     WHERE id = %s
@@ -331,6 +449,9 @@ class SignalRepository:
                         max_gap_seconds, pressure_grade,
                         pressure_status, block_relation,
                         previous_block_id, finalize_mode,
+                        block_mode, effective_temperature,
+                        wave_count, interrupted_by,
+                        effective_theme,
                         existing["id"],
                     ),
                 )
@@ -347,8 +468,9 @@ class SignalRepository:
                          avg_gap_seconds, max_gap_seconds,
                          pressure_grade, pressure_status, block_relation,
                          previous_block_id, finalize_mode, block_hash,
-                         is_active)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,FALSE)
+                         block_mode, pressure_temperature, wave_count,
+                         interrupted_by, theme_cluster, is_active)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,FALSE)
                     RETURNING id
                     """,
                     (
@@ -359,6 +481,8 @@ class SignalRepository:
                         avg_gap_seconds, max_gap_seconds,
                         pressure_grade, pressure_status, block_relation,
                         previous_block_id, finalize_mode, block_hash,
+                        block_mode, effective_temperature, wave_count,
+                        interrupted_by, effective_theme,
                     ),
                 )
                 row = await cur.fetchone()
@@ -392,15 +516,9 @@ class SignalRepository:
 
         if existing:
             previous_block_id = existing.get("previous_block_id")
-            gap_seconds = (event.timestamp_utc - existing["end_utc"]).total_seconds()
-            if gap_seconds > max_event_gap_seconds:
-                await self.mark_block_hard_finalized(existing["id"])
-                existing = None
-            elif gap_seconds > settings.max_continuity_gap_seconds:
-                await self.mark_block_continuity_split(existing["id"])
-                existing = None
-            else:
-                start_utc = existing["start_utc"]
+            # Phase 1 rule: a large same-pair gap does not split the block.
+            # Gap size remains visible through max_gap/density temperature.
+            start_utc = existing["start_utc"]
 
         if existing is None:
             last_finalized = await self.get_last_finalized_block(event.symbol)
@@ -994,6 +1112,7 @@ class SignalRepository:
         normalized_bucket = bucket.lower()
         if normalized_bucket not in {
             "all",
+            "failed",
             "radar",
             "watchlist",
             "ready",
@@ -1024,6 +1143,11 @@ class SignalRepository:
                     pb.pressure_grade,
                     pb.pressure_status,
                     pb.finalize_mode,
+                    pb.block_mode,
+                    pb.pressure_temperature,
+                    pb.wave_count,
+                    pb.interrupted_by,
+                    pb.theme_cluster,
                     pb.is_active,
                     tp.execution_grade,
                     tp.execution_side,
@@ -1161,13 +1285,23 @@ class SignalRepository:
             active_row = await cur.fetchone()
             active = active_row["cnt"] if active_row else 0
 
-            await cur.execute(
-                """
-                SELECT COUNT(*) AS cnt FROM trade_plans
-                WHERE execution_grade IN ('A', 'A+')
-                  AND created_at > NOW() - INTERVAL '24 hours'
-                """
-            )
+            if settings.signalthrottle_mode.lower() == "phase1":
+                await cur.execute(
+                    """
+                    SELECT COUNT(*) AS cnt FROM pressure_blocks
+                    WHERE end_utc > NOW() - INTERVAL '24 hours'
+                      AND duration_minutes >= %s
+                    """,
+                    (settings.min_radar_minutes,),
+                )
+            else:
+                await cur.execute(
+                    """
+                    SELECT COUNT(*) AS cnt FROM trade_plans
+                    WHERE execution_grade IN ('A', 'A+')
+                      AND created_at > NOW() - INTERVAL '24 hours'
+                    """
+                )
             priority_row = await cur.fetchone()
             priority = priority_row["cnt"] if priority_row else 0
 
@@ -1211,7 +1345,7 @@ class SignalRepository:
                     COUNT(*) FILTER (WHERE source_service = %s) AS engine_source_events_today,
                     MAX(timestamp_utc) AS latest_signal_event_utc
                 FROM signal_events
-                WHERE timestamp_utc >= %s AND timestamp_utc <= %s
+                WHERE timestamp_utc >= %s AND timestamp_utc < %s
                 """,
                 (settings.engine_log_source_service, start_utc, end_utc),
             )
@@ -1219,9 +1353,24 @@ class SignalRepository:
 
             await cur.execute(
                 """
+                SELECT
+                    COUNT(*) AS engine_raw_logs_today,
+                    COUNT(*) FILTER (
+                        WHERE is_signalthrottle = TRUE
+                          AND parse_status = 'SIGNALTHROTTLE_VALID'
+                    ) AS raw_signalthrottle_valid_today
+                FROM engine_log_entries
+                WHERE timestamp_utc >= %s AND timestamp_utc < %s
+                """,
+                (start_utc, end_utc),
+            )
+            raw_row = await cur.fetchone() or {}
+
+            await cur.execute(
+                """
                 SELECT COUNT(*) AS active_blocks_today
                 FROM pressure_blocks
-                WHERE end_utc >= %s AND end_utc <= %s AND is_active = TRUE
+                WHERE end_utc >= %s AND end_utc < %s AND is_active = TRUE
                 """,
                 (start_utc, end_utc),
             )
@@ -1231,7 +1380,7 @@ class SignalRepository:
                 """
                 SELECT COUNT(*) AS dashboard_signals_today
                 FROM pressure_blocks
-                WHERE end_utc >= %s AND end_utc <= %s
+                WHERE end_utc >= %s AND end_utc < %s
                   AND pressure_grade IN ('B+', 'A-', 'A', 'A+')
                 """,
                 (start_utc, end_utc),
@@ -1242,6 +1391,8 @@ class SignalRepository:
             return {
                 "signal_events_today": int(signal_row.get("signal_events_today") or 0),
                 "engine_source_events_today": int(signal_row.get("engine_source_events_today") or 0),
+                "engine_raw_logs_today": int(raw_row.get("engine_raw_logs_today") or 0),
+                "raw_signalthrottle_valid_today": int(raw_row.get("raw_signalthrottle_valid_today") or 0),
                 "active_blocks_today": int(active_row.get("active_blocks_today") or 0),
                 "dashboard_signals_today": int(dashboard_row.get("dashboard_signals_today") or 0),
                 "latest_signal_event_utc": latest_event.isoformat() if latest_event else None,
@@ -1257,7 +1408,34 @@ class SignalRepository:
             await cur.execute(
                 """
                 SELECT
-                    COUNT(*) AS raw_extracted_logs,
+                    COUNT(*) AS total_engine_logs,
+                    COUNT(*) FILTER (
+                        WHERE is_signalthrottle = TRUE
+                          AND parse_status = 'SIGNALTHROTTLE_VALID'
+                    ) AS signalthrottle_valid,
+                    COUNT(*) FILTER (
+                        WHERE parse_status IN (
+                            'SIGNALTHROTTLE_PARSE_FAILED',
+                            'SIGNALTHROTTLE_MISSING_TIMESTAMP'
+                        )
+                    ) AS signalthrottle_invalid,
+                    COUNT(*) FILTER (
+                        WHERE COALESCE(is_signalthrottle, FALSE) = FALSE
+                          AND COALESCE(parse_status, '') NOT LIKE 'SIGNALTHROTTLE%%'
+                    ) AS non_signalthrottle_logs,
+                    MIN(timestamp_utc) AS first_raw_log_utc,
+                    MAX(timestamp_utc) AS last_raw_log_utc
+                FROM engine_log_entries
+                WHERE timestamp_utc >= %s AND timestamp_utc < %s
+                """,
+                (start_utc, end_utc),
+            )
+            raw_totals = await cur.fetchone() or {}
+
+            await cur.execute(
+                """
+                SELECT
+                    COUNT(*) AS parsed_signal_events,
                     COUNT(*) FILTER (
                         WHERE COALESCE(meta->>'source_path', 'unknown') = 'engine_log_sync'
                     ) AS sync_events,
@@ -1266,19 +1444,21 @@ class SignalRepository:
                     ) AS webhook_events,
                     COUNT(*) FILTER (
                         WHERE source_service = %s
-                    ) AS engine_labeled_events
+                    ) AS engine_labeled_events,
+                    MIN(timestamp_utc) AS first_signal_event_utc,
+                    MAX(timestamp_utc) AS last_signal_event_utc
                 FROM signal_events
-                WHERE timestamp_utc >= %s AND timestamp_utc <= %s
+                WHERE timestamp_utc >= %s AND timestamp_utc < %s
                 """,
                 (settings.engine_log_source_service, start_utc, end_utc),
             )
-            totals = await cur.fetchone() or {}
+            signal_totals = await cur.fetchone() or {}
 
             await cur.execute(
                 """
                 SELECT COUNT(*) AS promoted_pressure_blocks
                 FROM pressure_blocks
-                WHERE end_utc >= %s AND end_utc <= %s
+                WHERE end_utc >= %s AND end_utc < %s
                 """,
                 (start_utc, end_utc),
             )
@@ -1288,7 +1468,7 @@ class SignalRepository:
                 """
                 SELECT COUNT(*) AS dashboard_signals
                 FROM pressure_blocks
-                WHERE end_utc >= %s AND end_utc <= %s
+                WHERE end_utc >= %s AND end_utc < %s
                   AND pressure_grade IN ('B+', 'A-', 'A', 'A+')
                 """,
                 (start_utc, end_utc),
@@ -1312,7 +1492,7 @@ class SignalRepository:
                         WHERE source_service = %s
                     ) AS engine_labeled_event_count
                 FROM signal_events
-                WHERE timestamp_utc >= %s AND timestamp_utc <= %s
+                WHERE timestamp_utc >= %s AND timestamp_utc < %s
                 GROUP BY symbol
                 ORDER BY event_count DESC, symbol ASC
                 """,
@@ -1327,12 +1507,24 @@ class SignalRepository:
                     COUNT(*) AS promoted_blocks,
                     MAX(pressure_grade) AS best_candidate_grade
                 FROM pressure_blocks
-                WHERE end_utc >= %s AND end_utc <= %s
+                WHERE end_utc >= %s AND end_utc < %s
                 GROUP BY symbol
                 """,
                 (start_utc, end_utc),
             )
             promoted_rows = await cur.fetchall()
+
+            await cur.execute(
+                """
+                SELECT symbol, event_type, timestamp_utc, timestamp_wita,
+                       chart_time, raw_message, source_service
+                FROM signal_events
+                WHERE timestamp_utc >= %s AND timestamp_utc < %s
+                ORDER BY timestamp_utc ASC, id ASC
+                """,
+                (start_utc, end_utc),
+            )
+            event_rows = await cur.fetchall()
 
         promoted_by_symbol = {
             row["symbol"]: row
@@ -1352,6 +1544,7 @@ class SignalRepository:
                     "event_count": int(row.get("event_count") or 0),
                     "first_event_utc": row.get("first_event_utc").isoformat() if row.get("first_event_utc") else None,
                     "last_event_utc": row.get("last_event_utc").isoformat() if row.get("last_event_utc") else None,
+                    "theme_cluster": classify_theme_cluster(symbol),
                     "sync_event_count": int(row.get("sync_event_count") or 0),
                     "webhook_event_count": int(row.get("webhook_event_count") or 0),
                     "engine_labeled_event_count": int(row.get("engine_labeled_event_count") or 0),
@@ -1364,14 +1557,122 @@ class SignalRepository:
                 }
             )
 
+        events = [
+            LogEvent(
+                symbol=row["symbol"],
+                event_type=row["event_type"],
+                timestamp_utc=row["timestamp_utc"],
+                timestamp_wita=row.get("timestamp_wita"),
+                chart_time=row.get("chart_time"),
+                raw_message=row["raw_message"],
+                source_service=row.get("source_service") or settings.engine_log_source_service,
+            )
+            for row in event_rows
+        ]
+        sequences = build_canonical_sequences(events, max_gap_seconds=None)
+        clean_runs: list[dict[str, Any]] = []
+        wave_counts: dict[str, int] = {}
+        for index, seq_events in enumerate(sequences):
+            if not seq_events:
+                continue
+            symbol = seq_events[0].symbol
+            wave_counts[symbol] = wave_counts.get(symbol, 0) + 1
+            metrics = calculate_pressure_metrics(seq_events)
+            interrupted_by = (
+                sequences[index + 1][0].symbol
+                if index + 1 < len(sequences) and sequences[index + 1]
+                else None
+            )
+            status = phase1_signal_status(
+                duration_minutes=metrics["duration_minutes"],
+                event_count=metrics["event_count"],
+                density_per_minute=metrics["density_per_minute"],
+            )
+            run = {
+                "symbol": symbol,
+                "start_utc": seq_events[0].timestamp_utc.isoformat(),
+                "end_utc": seq_events[-1].timestamp_utc.isoformat(),
+                "start_wita": to_wita(seq_events[0].timestamp_utc),
+                "end_wita": to_wita(seq_events[-1].timestamp_utc),
+                "event_count": metrics["event_count"],
+                "duration_minutes": metrics["duration_minutes"],
+                "density_per_minute": metrics["density_per_minute"],
+                "avg_gap_seconds": metrics["avg_gap_seconds"],
+                "max_gap_seconds": metrics["max_gap_seconds"],
+                "block_mode": "SAME_PAIR_SEQUENCE",
+                "pressure_temperature": classify_pressure_temperature(metrics["density_per_minute"]),
+                "wave_count": wave_counts[symbol],
+                "interrupted_by": interrupted_by,
+                "theme_cluster": classify_theme_cluster(symbol),
+                "status": status,
+            }
+            if float(metrics["duration_minutes"] or 0) >= settings.min_radar_minutes:
+                clean_runs.append(run)
+
+        clean_runs.sort(
+            key=lambda row: (
+                float(row.get("duration_minutes") or 0),
+                int(row.get("event_count") or 0),
+            ),
+            reverse=True,
+        )
+        priority_runs = sorted(
+            [
+                run
+                for run in clean_runs
+                if run.get("status") in {"PRIORITY_SIGNAL", "PRIORITY_CONTEXTUAL", "SUSTAINED_RADAR"}
+            ],
+            key=lambda row: (
+                row.get("status") == "PRIORITY_SIGNAL",
+                row.get("end_utc") or "",
+                int(row.get("event_count") or 0),
+            ),
+            reverse=True,
+        )
+        themes = _build_theme_summary(symbols)
+
+        parsed_signal_events = int(signal_totals.get("parsed_signal_events") or 0)
+        total_engine_logs = int(raw_totals.get("total_engine_logs") or 0)
+        raw_extracted_logs = total_engine_logs if total_engine_logs else parsed_signal_events
+
         return {
-            "raw_extracted_logs": int(totals.get("raw_extracted_logs") or 0),
-            "parsed_signal_events": int(totals.get("raw_extracted_logs") or 0),
-            "sync_events": int(totals.get("sync_events") or 0),
-            "webhook_events": int(totals.get("webhook_events") or 0),
-            "engine_labeled_events": int(totals.get("engine_labeled_events") or 0),
+            "total_engine_logs": total_engine_logs,
+            "raw_extracted_logs": raw_extracted_logs,
+            "parsed_signal_events": parsed_signal_events,
+            "signalthrottle_valid": int(raw_totals.get("signalthrottle_valid") or parsed_signal_events),
+            "signalthrottle_invalid": int(raw_totals.get("signalthrottle_invalid") or 0),
+            "non_signalthrottle_logs": int(raw_totals.get("non_signalthrottle_logs") or 0),
+            "sync_events": int(signal_totals.get("sync_events") or 0),
+            "webhook_events": int(signal_totals.get("webhook_events") or 0),
+            "engine_labeled_events": int(signal_totals.get("engine_labeled_events") or 0),
+            "first_raw_log_utc": (
+                raw_totals.get("first_raw_log_utc").isoformat()
+                if raw_totals.get("first_raw_log_utc")
+                else None
+            ),
+            "last_raw_log_utc": (
+                raw_totals.get("last_raw_log_utc").isoformat()
+                if raw_totals.get("last_raw_log_utc")
+                else None
+            ),
+            "first_signal_event_utc": (
+                signal_totals.get("first_signal_event_utc").isoformat()
+                if signal_totals.get("first_signal_event_utc")
+                else None
+            ),
+            "last_signal_event_utc": (
+                signal_totals.get("last_signal_event_utc").isoformat()
+                if signal_totals.get("last_signal_event_utc")
+                else None
+            ),
             "promoted_pressure_blocks": int(promoted_row.get("promoted_pressure_blocks") or 0),
             "dashboard_signals": int(dashboard_row.get("dashboard_signals") or 0),
+            "total_pairs": len(symbols),
+            "consecutive_runs": len(sequences),
+            "runs_ge_5m": len(clean_runs),
+            "clean_runs": clean_runs[:50],
+            "priority_runs": priority_runs[:10],
+            "themes": themes,
             "symbols": symbols,
         }
 
@@ -2195,6 +2496,44 @@ def _engine_logs_failure_reason(*, event_count: int, promoted_blocks: int) -> st
     if event_count <= 0:
         return "NO_EVENTS"
     return "PARSED_ONLY_NO_PROMOTION"
+
+
+def _build_theme_summary(symbols: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    themes: dict[str, dict[str, Any]] = {}
+    for row in symbols:
+        cluster = row.get("theme_cluster") or classify_theme_cluster(row.get("symbol"))
+        if not cluster:
+            continue
+        theme = themes.setdefault(
+            cluster,
+            {
+                "theme_cluster": cluster,
+                "event_count": 0,
+                "members": [],
+            },
+        )
+        event_count = int(row.get("event_count") or 0)
+        theme["event_count"] += event_count
+        theme["members"].append(
+            {
+                "symbol": row.get("symbol"),
+                "event_count": event_count,
+            }
+        )
+
+    output = []
+    for theme in themes.values():
+        members = sorted(theme["members"], key=lambda item: item["event_count"], reverse=True)
+        output.append(
+            {
+                "theme_cluster": theme["theme_cluster"],
+                "event_count": theme["event_count"],
+                "leaders": [member["symbol"] for member in members[:3]],
+                "members": members,
+                "status": "THEME_ALERT" if theme["event_count"] >= 100 else "SUPPORTING_THEME",
+            }
+        )
+    return sorted(output, key=lambda item: item["event_count"], reverse=True)
 
 
 def _build_signal_throttle_states(events: list[LogEvent]) -> list[dict[str, Any]]:

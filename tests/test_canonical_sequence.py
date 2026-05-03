@@ -58,6 +58,20 @@ def test_canonical_sequence_splits_on_gap_over_max() -> None:
     assert len(sequences[1]) == 1
 
 
+def test_phase1_canonical_sequence_does_not_split_same_pair_large_gap() -> None:
+    base = datetime(2026, 4, 24, 7, 0, 0, tzinfo=timezone.utc)
+    events = [
+        _ev("USDJPY", base),
+        _ev("USDJPY", base + timedelta(seconds=60)),
+        _ev("USDJPY", base + timedelta(seconds=400)),
+    ]
+
+    sequences = build_canonical_sequences(events, max_gap_seconds=None)
+
+    assert len(sequences) == 1
+    assert len(sequences[0]) == 3
+
+
 def test_canonical_sequence_keeps_single_block_when_gap_under_max() -> None:
     base = datetime(2026, 4, 24, 7, 0, 0, tzinfo=timezone.utc)
     events = [

@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import logging
-import re
-from datetime import datetime
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
@@ -12,24 +10,19 @@ from ..config import settings
 from ..detector.sequence_builder import (
     build_canonical_sequences,
     make_block_hash,
-    split_sequence_by_continuity_gap,
 )
+from ..ingestion.engine_log_sync import parse_engine_log_entries
 from ..models.log_event import LogEvent
 from ..parser.signalthrottle_parser import parse_signalthrottle
 from ..parser.timestamp_mapper import to_chart_time, to_wita
 from ..planner.market_context import enrich_block_with_market_context
 from ..scoring.pressure_grader import grade_pressure
 from ..scoring.pressure_metrics import calculate_pressure_metrics
+from ..scoring.phase1_classification import pressure_temperature, theme_cluster
 from ..storage.repositories import SignalRepository
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-
-# Matches typical Railway log timestamp prefix
-_TS_RE = re.compile(
-    r"(?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?)"
-)
-
 
 class ReplayPayload(BaseModel):
     logs: str
@@ -53,27 +46,16 @@ async def replay_logs(
         }
     
     try:
-        lines = payload.logs.strip().splitlines()
+        entries = parse_engine_log_entries(payload.logs, source_path="replay")
         events: list[LogEvent] = []
 
-        for line in lines:
-            line = line.strip()
-            if not line:
+        for entry in entries:
+            if entry.timestamp_utc is None:
                 continue
-
-            # Extract timestamp
-            ts_match = _TS_RE.search(line)
-            if not ts_match:
-                continue
-            ts_str = ts_match.group("ts")
-            if not ts_str.endswith("Z"):
-                ts_str += "Z"
-            try:
-                ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
-            except ValueError:
-                continue
-
-            parsed = parse_signalthrottle(raw_message=line, timestamp_utc=ts)
+            parsed = parse_signalthrottle(
+                raw_message=entry.message,
+                timestamp_utc=entry.timestamp_utc,
+            )
             if not parsed:
                 continue
 
@@ -86,15 +68,16 @@ async def replay_logs(
                     chart_time=to_chart_time(
                         parsed.timestamp_utc, settings.chart_time_offset_hours
                     ),
-                    raw_message=line,
+                    raw_message=entry.message,
+                    source_service=entry.source_service,
                 )
             )
 
         if not events:
             return {
                 "status": "no_events_parsed",
-                "line_count": len(lines),
-                "message": f"No valid SignalThrottle logs found in {len(lines)} lines. Check timestamp format (expected: YYYY-MM-DDTHH:MM:SSZ)"
+                "line_count": len(entries),
+                "message": f"No valid SignalThrottle logs found in {len(entries)} rows. Check timestamp format (expected: YYYY-MM-DDTHH:MM:SSZ)"
             }
 
         # Store events
@@ -124,7 +107,7 @@ async def replay_logs(
         # that a different pair appearing closes the previous block, even if the
         # original pair returns within max_gap_seconds.
         try:
-            sequences = build_canonical_sequences(events, settings.max_event_gap_seconds)
+            sequences = build_canonical_sequences(events, max_gap_seconds=None)
         except Exception as e:
             logger.exception("Failed to build canonical sequences")
             return {
@@ -135,22 +118,17 @@ async def replay_logs(
                 "events_stored": stored,
             }
 
-        continuity_blocks = [
-            block
-            for sequence in sequences
-            for block in split_sequence_by_continuity_gap(
-                sequence,
-                settings.max_continuity_gap_seconds,
-            )
-        ]
+        continuity_blocks = sequences
         block_results = []
         blocks_created = 0
         blocks_updated = 0
         trade_plan_count = 0
+        wave_counts: dict[str, int] = {}
 
-        for seq_events in continuity_blocks:
+        for index, seq_events in enumerate(continuity_blocks):
             try:
                 symbol = seq_events[0].symbol
+                wave_counts[symbol] = wave_counts.get(symbol, 0) + 1
                 metrics = calculate_pressure_metrics(seq_events)
                 grade = grade_pressure(
                     duration=metrics["duration_minutes"],
@@ -162,6 +140,11 @@ async def replay_logs(
                 start = seq_events[0].timestamp_utc
                 end = seq_events[-1].timestamp_utc
                 block_hash = make_block_hash(seq_events)
+                interrupted_by = (
+                    continuity_blocks[index + 1][0].symbol
+                    if index + 1 < len(continuity_blocks) and continuity_blocks[index + 1]
+                    else None
+                )
 
                 # Idempotent: same block_hash → updates the existing row, never
                 # inserts a duplicate. Replaying the same logs N times yields the
@@ -187,6 +170,11 @@ async def replay_logs(
                     pressure_grade=grade,
                     pressure_status="REPLAY",
                     finalize_mode="REPLAY_FINALIZE",
+                    block_mode="SAME_PAIR_SEQUENCE",
+                    pressure_temperature=pressure_temperature(metrics["density_per_minute"]),
+                    wave_count=wave_counts[symbol],
+                    interrupted_by=interrupted_by,
+                    theme_cluster=theme_cluster(symbol),
                 )
                 if block_data["action"] == "created":
                     blocks_created += 1
@@ -215,9 +203,18 @@ async def replay_logs(
                     "pressure_status": "REPLAY",
                     "block_relation": None,
                     "finalize_mode": "REPLAY_FINALIZE",
+                    "block_mode": "SAME_PAIR_SEQUENCE",
+                    "pressure_temperature": pressure_temperature(metrics["density_per_minute"]),
+                    "wave_count": wave_counts[symbol],
+                    "interrupted_by": interrupted_by,
+                    "theme_cluster": theme_cluster(symbol),
                 }
 
-                trade_plan = await enrich_block_with_market_context(block, repo)
+                trade_plan = (
+                    await enrich_block_with_market_context(block, repo)
+                    if settings.enable_trade_plans
+                    else None
+                )
                 if trade_plan:
                     trade_plan_count += 1
 
@@ -230,7 +227,13 @@ async def replay_logs(
                         "event_count": metrics["event_count"],
                         "duration_minutes": metrics["duration_minutes"],
                         "density_per_minute": metrics["density_per_minute"],
+                        "max_gap_seconds": metrics["max_gap_seconds"],
                         "pressure_grade": grade,
+                        "block_mode": "SAME_PAIR_SEQUENCE",
+                        "pressure_temperature": pressure_temperature(metrics["density_per_minute"]),
+                        "wave_count": wave_counts[symbol],
+                        "interrupted_by": interrupted_by,
+                        "theme_cluster": theme_cluster(symbol),
                         "trade_plan_created": trade_plan is not None,
                     }
                 )
