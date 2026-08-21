@@ -1,12 +1,23 @@
 # Wolf15 SignalThrottle Service
 
+> **Runtime mandate:** `PRODUCTION` / `OBSERVE_ONLY` / `OBSERVATIONAL_ONLY`.
+> Wolf15 main remains the sole owner of strategy, market direction, risk,
+> FinalSignal, commands, and execution. The production image for this service
+> does not include or register the legacy Phase 2 market/trade-plan/outcome
+> runtime. See `docs/architecture/observer-boundary.md` for the authoritative
+> boundary. Older Phase 2 sections below are retained temporarily as historical
+> documentation and are not production activation instructions.
+
 ![Status](https://img.shields.io/badge/status-MVP%20roadmap-blue)
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-service-green)
 ![Railway](https://img.shields.io/badge/deploy-Railway-purple)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
 
-**Wolf15 SignalThrottle Service** adalah microservice dashboard untuk membaca event `SignalThrottle` dari engine utama Wolf15, mengubah raw throttle logs menjadi **pressure block**, lalu menghasilkan **trade-plan JSON** berbasis kualitas logs, konteks OHLC, struktur market, dan fase pair.
+**Wolf15 SignalThrottle Service** adalah pressure observatory dan owner console
+untuk membaca event `SignalThrottle`, menyimpan bukti observasional, dan
+menampilkan pressure block tanpa menghasilkan strategy, trade plan, risk,
+command, atau output eksekusi.
 
 Service ini **bukan order executor**.  
 Service ini **tidak membuka posisi, tidak menutup posisi, dan tidak mengubah Layer-12 / risk engine / execution engine**.  
@@ -616,16 +627,19 @@ SERVICE_NAME = "wolf15-signalthrottle-service"
 | `LOG_TIMEZONE` | no | `UTC` | Engine log timezone |
 | `OWNER_TIMEZONE` | no | `Asia/Makassar` | Owner timezone |
 | `CHART_TIME_OFFSET_HOURS` | no | `3` | Chart offset from UTC |
-| `OHLC_PROVIDER` | no | `finnhub` | OHLC provider |
-| `FINNHUB_API_KEY` | yes, Phase 2+ | - | Finnhub API key |
+| `DEPLOYMENT_ENVIRONMENT` | no | `production` | Deployment identity; tidak berarti live execution |
+| `OBSERVER_MODE` | yes | `observe_only` | Nilai lain ditolak saat startup |
+| `OBSERVER_AUTHORITY` | yes | `observational_only` | Nilai lain ditolak saat startup |
+| `FINNHUB_API_KEY` | forbidden | - | Nilai non-empty ditolak saat startup |
 | `MIN_RADAR_MINUTES` | no | `5` | Minimum radar duration |
 | `MIN_STRONG_MINUTES` | no | `14` | Strong pressure duration |
 | `MAX_EVENT_GAP_SECONDS` | no | `300` | Max gap inside block |
 | `SOFT_FINALIZE_SECONDS` | no | `90` | Soft finalizer delay |
 | `HARD_FINALIZE_SECONDS` | no | `300` | Hard finalizer delay |
-| `WEBHOOK_SECRET` | yes, Phase 3+ | - | Webhook auth secret |
-| `DASHBOARD_BASIC_AUTH_USER` | recommended | - | Dashboard auth user |
-| `DASHBOARD_BASIC_AUTH_PASSWORD` | recommended | - | Dashboard auth password |
+| `WEBHOOK_SECRET` | yes | - | Missing secret membuat webhook fail-closed (503) |
+| `DASHBOARD_BASIC_AUTH_USER` | yes | - | Missing/partial owner auth membuat owner route fail-closed (503) |
+| `DASHBOARD_BASIC_AUTH_PASSWORD` | yes | - | Password owner UI/API |
+| `DASHBOARD_BASIC_AUTH_ROLE` | yes | `owner_admin` | `owner_viewer`, `owner_operator`, atau `owner_admin` |
 
 ---
 
@@ -634,52 +648,27 @@ SERVICE_NAME = "wolf15-signalthrottle-service"
 ### Health
 
 ```http
-GET /health
+GET /health/live
+GET /health/ready
 ```
 
 Response:
 
 ```json
 {
-  "status": "ok",
-  "service": "wolf15-signalthrottle-service"
+  "status": "live",
+  "deployment_environment": "PRODUCTION",
+  "observer_mode": "OBSERVE_ONLY",
+  "observer_authority": "OBSERVATIONAL_ONLY",
+  "execution_allowed": false
 }
 ```
 
 ### Replay logs
 
-```http
-POST /replay/logs
-```
-
-Quick live smoke test against Railway:
-
-```bash
-python scripts/replay_logs.py tests/fixtures/usdjpy_bplus_replay.log --url https://your-service.up.railway.app
-```
-
-This runs the recommended Phase 2 sequence:
-
-```text
-GET /health
-GET /market/snapshot/USDJPY
-POST /replay/logs
-GET /signals/latest
-```
-
-Replay-only example:
-
-```bash
-python scripts/replay_logs.py tests/fixtures/usdjpy_bplus_replay.log --url https://your-service.up.railway.app --skip-health --skip-market
-```
-
-Payload:
-
-```json
-{
-  "logs": "2026-04-24T02:30:34Z [SignalThrottle] USDJPY THROTTLED — 3 signals in last 300s (max 3)"
-}
-```
+`POST /replay/logs` is not registered in production and returns `404`.
+Legacy replay is quarantined as `LEGACY_UNSAFE_REPLAY`; durable isolated replay
+is deferred to PR-02.
 
 ### Webhook log
 
@@ -1114,12 +1103,10 @@ MVP does not need live engine integration.
 Recommended order:
 
 ```text
-1. Manual replay logs
-2. Test /webhook/log by curl
-3. Enable webhook in engine with disabled flag
-4. Deploy engine publisher
-5. Enable publisher in Railway env
-6. Monitor dashboard and engine logs
+1. Test `/webhook/log` with machine authentication
+2. Deploy the engine publisher disabled
+3. Enable the publisher through reviewed configuration
+4. Monitor dashboard and engine logs
 ```
 
 Engine environment:
@@ -1175,11 +1162,8 @@ trade_plan JSON has stable schema
 duplicate webhook event is ignored
 ```
 
-Replay fixture:
-
-```bash
-python scripts/replay_logs.py tests/fixtures/usdjpy_r7.log
-```
+Legacy replay fixtures remain research-only and are not production invocation
+instructions.
 
 ---
 
