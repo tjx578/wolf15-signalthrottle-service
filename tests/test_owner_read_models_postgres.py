@@ -19,6 +19,7 @@ from app.services.owner_read_models import (
     OwnerReadModelRebuildService,
     OwnerRebuildStatus,
 )
+from app.services.owner_snapshot import OwnerSnapshotService
 from app.services.telemetry_intake import TelemetryIntakeService
 from app.storage.migrations import (
     _migration_014_observer_durable_foundation,
@@ -119,7 +120,42 @@ def test_owner_generation_promotion_is_deterministic_atomic_and_fenced(
             generation["generation_id"]
         }
 
-        active_before_mismatch = generation["generation_id"]
+        old_active_id = generation["generation_id"]
+        await intake.ingest(_event(stream_id, 4))
+        dashboard_reads = [OwnerSnapshotService().build_snapshot() for _ in range(20)]
+        promotion_and_reads = await asyncio.gather(
+            OwnerReadModelRebuildService().rebuild(promote=True),
+            *dashboard_reads,
+        )
+        promotion = promotion_and_reads[0]
+        snapshots = promotion_and_reads[1:]
+        assert promotion.status == OwnerRebuildStatus.ACTIVE
+        assert await rebuild._generations.count_active() == 1
+        allowed_generations = {old_active_id, promotion.generation_id}
+        assert {
+            snapshot.read_models.generation_id for snapshot in snapshots
+        } <= allowed_generations
+        assert all(
+            snapshot.source.source_watermark
+            and snapshot.snapshot_content_hash
+            and snapshot.read_models.output_hash
+            for snapshot in snapshots
+        )
+
+        active_bundle = await rebuild._generations.get_active_bundle()
+        assert active_bundle is not None
+        active_before_mismatch = active_bundle[0]["generation_id"]
+        async with postgres.get_connection() as conn:
+            rejected_before = await (
+                await conn.execute(
+                    """
+                    SELECT COUNT(*) AS count
+                    FROM observer_plane.read_model_generations
+                    WHERE read_model_name = %s AND status = 'REJECTED'
+                    """,
+                    (OWNER_READ_MODEL_NAME,),
+                )
+            ).fetchone()
         mismatch = await rebuild.rebuild(
             expected_output_hash="0" * 64,
             promote=True,
@@ -142,7 +178,10 @@ def test_owner_generation_promotion_is_deterministic_atomic_and_fenced(
                     (OWNER_READ_MODEL_NAME,),
                 )
             ).fetchone()
-        assert invariant == {"active": 1, "rejected": 1}
+        assert invariant == {
+            "active": 1,
+            "rejected": rejected_before["count"] + 1,
+        }
         await postgres.close_db()
 
     asyncio.run(exercise())

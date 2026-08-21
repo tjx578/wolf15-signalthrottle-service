@@ -242,7 +242,9 @@ def reduce_observer_safety_summary(
         "mode": "OBSERVE_ONLY",
         "authority": "OBSERVATIONAL_ONLY",
         "status": "PASS",
+        "phase2_surface_count": 0,
         "forbidden_surface_count": 0,
+        "forbidden_artifact_count": 0,
         "execution_surface_count": 0,
         "last_successful_containment_verification": _iso(
             source.latest_containment_verification
@@ -289,13 +291,26 @@ def reduce_observer_stream_health(
         if "HASH_CONFLICT" in quarantine["reason_code"]
         or "HASH_CONFLICT" in quarantine["conflict_type"]
     )
-    committed_sequences = [
-        cursor["committed_sequence"]
-        for cursor in source.cursors
-        if cursor["committed_sequence"] is not None
-    ]
+    committed = max(
+        (
+            cursor
+            for cursor in source.cursors
+            if cursor["committed_sequence"] is not None
+        ),
+        key=lambda cursor: (
+            cursor["committed_sequence"],
+            cursor["consumer_name"],
+            cursor["stream_id"],
+        ),
+        default=None,
+    )
     return {
-        "committed_cursor": max(committed_sequences, default=None),
+        "committed_cursor": committed["committed_sequence"] if committed else None,
+        "committed_event_id": (
+            str(committed["committed_event_id"])
+            if committed and committed["committed_event_id"] is not None
+            else None
+        ),
         "latest_ledger_sequence": source.source_end_sequence,
         "backlog_count": len(backlog),
         "sequence_gap_count": _sequence_gap_count(source.events),

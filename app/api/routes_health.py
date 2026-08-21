@@ -8,11 +8,17 @@ from fastapi.responses import JSONResponse
 
 from app.config import settings
 from app.storage.migrations import (
+    get_owner_read_model_schema_status,
     get_observer_schema_status,
     get_observer_reducer_schema_status,
     get_pressure_blocks_schema_status,
 )
 from app.storage.postgres import get_cursor, get_pool_stats
+from app.services.owner_snapshot import (
+    OwnerSnapshotInvariantFailure,
+    OwnerSnapshotService,
+    OwnerSnapshotUnavailable,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -85,12 +91,22 @@ async def _database_readiness() -> dict[str, Any]:
                     "missing_quarantine_columns", []
                 ),
             }
+        owner_schema = await get_owner_read_model_schema_status()
+        if owner_schema.get("status") != "ok":
+            return {
+                "status": "FAIL",
+                "reason_code": "OWNER_READ_MODEL_SCHEMA_OUT_OF_SYNC",
+                "expected_revision": owner_schema.get("expected_revision"),
+                "revision_current": owner_schema.get("revision_current", False),
+                "missing_tables": owner_schema.get("missing_tables", []),
+                "missing_columns": owner_schema.get("missing_columns", []),
+            }
         return {
             "status": "PASS",
             "reason_code": "DATABASE_POOL_AND_SCHEMAS_READY",
             "pool": get_pool_stats(),
             "observer_schema": "AVAILABLE",
-            "migration_revision": reducer_schema.get("expected_revision"),
+            "migration_revision": owner_schema.get("expected_revision"),
             "migration_current": True,
         }
     except Exception as exc:
@@ -102,6 +118,32 @@ async def _database_readiness() -> dict[str, Any]:
         }
 
 
+async def _owner_read_model_readiness() -> dict[str, Any]:
+    try:
+        snapshot = await OwnerSnapshotService().build_snapshot()
+        return {
+            "status": "PASS",
+            "reason_code": "OWNER_READ_MODEL_ACTIVE",
+            "generation_id": str(snapshot.read_models.generation_id),
+            "source_watermark": snapshot.source.source_watermark,
+        }
+    except OwnerSnapshotUnavailable:
+        return {
+            "status": "FAIL",
+            "reason_code": "OWNER_READ_MODEL_NOT_ACTIVE",
+        }
+    except OwnerSnapshotInvariantFailure:
+        return {
+            "status": "FAIL",
+            "reason_code": "OWNER_SNAPSHOT_INVARIANT_FAILURE",
+        }
+    except Exception as exc:
+        logger.warning("Owner read-model readiness probe failed: %s", exc)
+        return {
+            "status": "FAIL",
+            "reason_code": "OWNER_READ_MODEL_UNAVAILABLE",
+            "error_type": type(exc).__name__,
+        }
 @router.get("/health/ready")
 async def health_ready() -> JSONResponse:
     containment_status = "PASS"
@@ -134,6 +176,7 @@ async def health_ready() -> JSONResponse:
             ),
         },
         "database": await _database_readiness(),
+        "owner_read_models": await _owner_read_model_readiness(),
         "canonical_feed": {
             "status": "UNKNOWN",
             "reason_code": "HOLD_UPSTREAM_TYPED_EXPORT",
@@ -145,7 +188,13 @@ async def health_ready() -> JSONResponse:
             "required_for_current_observer_readiness": False,
         },
     }
-    required_checks = ("containment", "owner_auth", "webhook_auth", "database")
+    required_checks = (
+        "containment",
+        "owner_auth",
+        "webhook_auth",
+        "database",
+        "owner_read_models",
+    )
     ready = all(checks[name]["status"] == "PASS" for name in required_checks)
     payload = {
         "status": "ready" if ready else "not_ready",

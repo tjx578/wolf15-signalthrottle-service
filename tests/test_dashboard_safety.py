@@ -16,7 +16,12 @@ from app.storage.repositories import SignalRepository
 def test_owner_routes_require_authentication() -> None:
     client = TestClient(create_app())
 
-    for path in ("/", "/signals/latest", "/blocks/active"):
+    for path in (
+        "/",
+        "/signals/latest",
+        "/blocks/active",
+        "/api/v1/owner/snapshot",
+    ):
         assert client.get(path).status_code == 401
 
 
@@ -25,7 +30,12 @@ def test_owner_routes_fail_closed_when_auth_configuration_is_missing(monkeypatch
     monkeypatch.setattr(settings, "dashboard_basic_auth_password", None)
     client = TestClient(create_app())
 
-    for path in ("/", "/signals/latest", "/blocks/active"):
+    for path in (
+        "/",
+        "/signals/latest",
+        "/blocks/active",
+        "/api/v1/owner/snapshot",
+    ):
         assert client.get(path).status_code == 503
 
 
@@ -87,7 +97,15 @@ def test_readiness_passes_only_required_measured_checks(monkeypatch) -> None:
     async def database_ready() -> dict:
         return {"status": "PASS", "reason_code": "DATABASE_AND_SCHEMA_READY"}
 
+    async def owner_read_models_ready() -> dict:
+        return {"status": "PASS", "reason_code": "OWNER_READ_MODEL_ACTIVE"}
+
     monkeypatch.setattr(routes_health, "_database_readiness", database_ready)
+    monkeypatch.setattr(
+        routes_health,
+        "_owner_read_model_readiness",
+        owner_read_models_ready,
+    )
     response = TestClient(create_app()).get("/health/ready")
 
     assert response.status_code == 200
@@ -101,7 +119,15 @@ def test_readiness_fails_when_owner_auth_is_missing(monkeypatch) -> None:
     async def database_ready() -> dict:
         return {"status": "PASS", "reason_code": "DATABASE_AND_SCHEMA_READY"}
 
+    async def owner_read_models_ready() -> dict:
+        return {"status": "PASS", "reason_code": "OWNER_READ_MODEL_ACTIVE"}
+
     monkeypatch.setattr(routes_health, "_database_readiness", database_ready)
+    monkeypatch.setattr(
+        routes_health,
+        "_owner_read_model_readiness",
+        owner_read_models_ready,
+    )
     monkeypatch.setattr(settings, "dashboard_basic_auth_user", None)
     monkeypatch.setattr(settings, "dashboard_basic_auth_password", None)
     response = TestClient(create_app()).get("/health/ready")
@@ -114,7 +140,15 @@ def test_readiness_fails_when_database_is_unavailable(monkeypatch) -> None:
     async def database_unavailable() -> dict:
         return {"status": "FAIL", "reason_code": "DATABASE_UNAVAILABLE"}
 
+    async def owner_read_models_unavailable() -> dict:
+        return {"status": "FAIL", "reason_code": "OWNER_READ_MODEL_UNAVAILABLE"}
+
     monkeypatch.setattr(routes_health, "_database_readiness", database_unavailable)
+    monkeypatch.setattr(
+        routes_health,
+        "_owner_read_model_readiness",
+        owner_read_models_unavailable,
+    )
     client = TestClient(create_app())
     live_response = client.get("/health/live")
     response = client.get("/health/ready")
@@ -122,3 +156,25 @@ def test_readiness_fails_when_database_is_unavailable(monkeypatch) -> None:
     assert live_response.status_code == 200
     assert response.status_code == 503
     assert response.json()["checks"]["database"]["status"] == "FAIL"
+
+
+def test_readiness_fails_closed_when_owner_generation_is_not_active(monkeypatch) -> None:
+    async def database_ready() -> dict:
+        return {"status": "PASS", "reason_code": "DATABASE_AND_SCHEMA_READY"}
+
+    async def owner_read_models_missing() -> dict:
+        return {"status": "FAIL", "reason_code": "OWNER_READ_MODEL_NOT_ACTIVE"}
+
+    monkeypatch.setattr(routes_health, "_database_readiness", database_ready)
+    monkeypatch.setattr(
+        routes_health,
+        "_owner_read_model_readiness",
+        owner_read_models_missing,
+    )
+    response = TestClient(create_app()).get("/health/ready")
+
+    assert response.status_code == 503
+    assert response.json()["checks"]["owner_read_models"] == {
+        "status": "FAIL",
+        "reason_code": "OWNER_READ_MODEL_NOT_ACTIVE",
+    }

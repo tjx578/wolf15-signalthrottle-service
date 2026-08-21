@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from app.api.routes_blocks import router as blocks_router
 from app.api.routes_dashboard import router as dashboard_router
 from app.api.routes_health import router as health_router
+from app.api.routes_owner import router as owner_router
 from app.api.routes_signals import router as signals_router
 from app.api.routes_webhook import router as webhook_router
 from app.api.auth import require_dashboard_auth
@@ -56,6 +57,12 @@ def create_app() -> FastAPI:
         blocks_router,
         prefix="/blocks",
         tags=["blocks"],
+        dependencies=owner_dependencies,
+    )
+    app.include_router(
+        owner_router,
+        prefix="/api/v1/owner",
+        tags=["owner-read-models"],
         dependencies=owner_dependencies,
     )
 

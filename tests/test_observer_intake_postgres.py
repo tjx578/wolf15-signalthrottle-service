@@ -23,6 +23,7 @@ from app.storage.consumer_cursors import ConsumerCursorRepository
 from app.storage.migrations import (
     _migration_014_observer_durable_foundation,
     _migration_015_observer_durable_reducer_recovery,
+    _migration_016_owner_snapshot_read_models,
 )
 
 
@@ -77,6 +78,7 @@ async def _prepare_database(database_url: str) -> None:
         conn.execute(Path("app/storage/schema.sql").read_text(encoding="utf-8"))
     await _migration_014_observer_durable_foundation()
     await _migration_015_observer_durable_reducer_recovery()
+    await _migration_016_owner_snapshot_read_models()
 
 
 @pytest.mark.skipif(
