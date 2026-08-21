@@ -10,6 +10,7 @@
         <tr>
           <th>Symbol</th>
           <th>Pressure</th>
+          <th>Authority</th>
           <th>Density</th>
           <th>Max Gap</th>
           <th>Coverage</th>
@@ -25,6 +26,7 @@
         <tr>
           <td class="symbol"><a href="/series-detail/{{ s.symbol }}">{{ s.symbol }}</a></td>
           <td><span class="badge">{{ s.pressure_grade }}</span></td>
+          <td>{{ s.source_authority }}</td>
           <td>{{ s.density_per_minute or '-' }}</td>
           <td>{{ s.max_gap_seconds or '-' }}</td>
           <td>{{ s.raw_coverage }}</td>

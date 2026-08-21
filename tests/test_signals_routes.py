@@ -305,11 +305,12 @@ class FakeSignalRepository:
                     "symbol": row["symbol"],
                     "pressure_grade": row["pressure_grade"],
                     "observation_bucket": bucket,
-                    "raw_coverage_status": "RAW_COVERAGE_UNKNOWN",
-                    "expected_admission_status": "NOT_EVALUATED",
+                    "source_authority": "LEGACY_OBSERVATIONAL",
+                    "raw_coverage": "RAW_COVERAGE_UNKNOWN",
+                    "expected_pair_admission": "NOT_EVALUATED",
                     "consumer_authority": "OBSERVATIONAL_ONLY",
                     "valid_for_execution": False,
-                    "execution_allowed": False,
+                    "execution_command_allowed": False,
                 }
             )
         return observations
@@ -364,6 +365,7 @@ def test_latest_observations_supports_priority_bucket(monkeypatch) -> None:
     assert payload["containment_profile"] == "PHASE1_OBSERVE_ONLY"
     assert payload["observations"][0]["symbol"] == "USDJPY"
     assert payload["observations"][0]["consumer_authority"] == "OBSERVATIONAL_ONLY"
+    assert payload["observations"][0]["source_authority"] == "LEGACY_OBSERVATIONAL"
     assert payload["observations"][0]["valid_for_execution"] is False
     assert "h4_structure" not in payload["observations"][0]
 
@@ -455,7 +457,10 @@ def test_latest_signals_legacy_watchlist_bucket_falls_back_to_all(monkeypatch) -
     payload = response.json()
     assert payload["bucket"] == "all"
     assert payload["count"] == 4
-    assert all(item["execution_allowed"] is False for item in payload["observations"])
+    assert all(
+        item["execution_command_allowed"] is False
+        for item in payload["observations"]
+    )
 
 
 def test_latest_signals_priority_returns_a_grades(monkeypatch) -> None:
@@ -474,7 +479,7 @@ def test_latest_signals_priority_returns_a_grades(monkeypatch) -> None:
     assert payload["bucket"] == "priority"
     assert payload["count"] == 1
     assert payload["observations"][0]["pressure_grade"] == "A"
-    assert payload["observations"][0]["expected_admission_status"] == "NOT_EVALUATED"
+    assert payload["observations"][0]["expected_pair_admission"] == "NOT_EVALUATED"
     assert "execution_grade" not in payload["observations"][0]
 
 

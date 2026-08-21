@@ -10,6 +10,7 @@
         <tr>
           <th>Symbol</th>
           <th>Pressure</th>
+          <th>Authority</th>
           <th>Reason</th>
           <th>Duration (m)</th>
           <th>Events</th>
@@ -22,6 +23,7 @@
         <tr>
           <td class="symbol"><a href="/series-detail/{{ s.symbol }}">{{ s.symbol }}</a></td>
           <td><span class="badge">{{ s.pressure_grade or '-' }}</span></td>
+          <td>{{ s.source_authority }}</td>
           <td>{{ s.reason_code or '-' }}</td>
           <td>{{ s.duration_minutes if s.duration_minutes is not none else '-' }}</td>
           <td>{{ s.event_count if s.event_count is not none else '-' }}</td>

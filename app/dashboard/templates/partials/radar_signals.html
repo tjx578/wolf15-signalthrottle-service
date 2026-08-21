@@ -10,6 +10,7 @@
         <tr>
           <th>Symbol</th>
           <th>Pressure</th>
+          <th>Authority</th>
           <th>Coverage</th>
           <th>Reason</th>
           <th>Duration (m)</th>
@@ -24,6 +25,7 @@
         <tr>
           <td class="symbol"><a href="/series-detail/{{ s.symbol }}">{{ s.symbol }}</a></td>
           <td><span class="badge">{{ s.pressure_grade }}</span></td>
+          <td>{{ s.source_authority }}</td>
           <td>{{ s.raw_coverage }}</td>
           <td>{{ s.reason_code or '-' }}</td>
           <td>{{ s.duration_minutes }}</td>

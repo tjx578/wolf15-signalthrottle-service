@@ -182,6 +182,7 @@ class FakeSignalRepository:
                 "display_message": row.get("display_message"),
                 "end_wita": row.get("signal_end_wita"),
                 "observation_bucket": bucket,
+                "source_authority": "LEGACY_DERIVED_LOG",
                 "raw_coverage": "RAW_COVERAGE_UNKNOWN",
                 "expected_pair_admission": "NOT_EVALUATED",
             }
@@ -563,6 +564,8 @@ def test_dashboard_partial_section_renders_fragment(monkeypatch) -> None:
     assert response.status_code == 200
     assert "Priority Pressure Observations" in response.text
     assert "GBPUSD" in response.text
+    assert "LEGACY_OBSERVATIONAL" in response.text
+    assert "LEGACY_DERIVED_LOG" not in response.text
     assert 'hx-get="/partials/watchlist_signals"' in response.text
     assert 'data-refresh-when-visible="true"' not in response.text
     assert "Replay Logs" not in response.text

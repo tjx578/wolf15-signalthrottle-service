@@ -36,29 +36,24 @@ jobs:
       - run: python -m pip install --upgrade pip
       - run: python -m pip install -r requirements-dev.txt
       - run: python -m compileall -q app
+      - run: python scripts/check_production_artifacts.py --validate-only
+      - run: python scripts/check_production_artifacts.py --self-test
       - run: python -m pytest -q
 
   production-image:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - run: python scripts/check_production_artifacts.py --validate-only
+      - run: python scripts/check_production_artifacts.py --self-test
       - run: docker build -t wolf15-pressure-observer:test .
-      - name: Assert forbidden Phase 2 paths are absent
+      - name: Assert canonical forbidden artifact inventory is absent
         run: |
           container_id=$(docker create wolf15-pressure-observer:test)
-          trap 'docker rm -f "$container_id" >/dev/null 2>&1 || true' EXIT
-          for path in /app/app/market /app/app/outcomes /app/app/planner /app/scripts; do
-            if docker export "$container_id" | tar -tf - | grep -q "^${path#/}/"; then
-              echo "Forbidden production path found: $path"
-              exit 1
-            fi
-          done
-          for path in app/app/api/routes_debug.py app/app/api/routes_market.py app/app/api/routes_outcomes.py app/app/api/routes_replay.py; do
-            if docker export "$container_id" | tar -tf - | grep -q "^$path$"; then
-              echo "Forbidden production file found: $path"
-              exit 1
-            fi
-          done
+          image_root=$(mktemp -d)
+          trap 'docker rm -f "$container_id" >/dev/null 2>&1 || true; rm -rf "$image_root"' EXIT
+          docker export "$container_id" | tar -xf - -C "$image_root"
+          python scripts/check_production_artifacts.py --root "$image_root" --workdir app
       - name: Smoke-test production import and route inventory
         run: |
           docker run --rm wolf15-pressure-observer:test python -c "import sys; from pathlib import Path; from fastapi.testclient import TestClient; from app.main import app; paths={r.path for r in app.routes}; forbidden={'/market/snapshot/{symbol}','/outcomes/summary','/outcomes/backfill','/signals/trade-plans','/signals/{signal_id}','/signal-detail/{signal_id}','/debug/sync','/debug/schema','/replay/logs'}; assert not paths.intersection(forbidden), paths; assert {'/health/live','/health/ready'}.issubset(paths), paths; assert not any(name.startswith(('app.market','app.outcomes','app.planner','app.api.routes_replay')) for name in sys.modules), sorted(sys.modules); client=TestClient(app); live=client.get('/health/live'); assert live.status_code == 200 and live.json()['observer_mode'] == 'OBSERVE_ONLY'; assert client.get('/signals/latest').status_code == 503; assert client.post('/webhook/log', json={'message':'x'}).status_code == 503; assert client.post('/replay/logs', json={'logs':'x'}).status_code == 404; html=Path('/app/app/dashboard/templates/index.html').read_text(); js=Path('/app/app/dashboard/static/app.js').read_text(); assert 'id=\"replay-form\"' not in html and \"fetch('/replay/logs'\" not in js"

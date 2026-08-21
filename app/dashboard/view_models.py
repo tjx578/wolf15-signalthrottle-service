@@ -4,6 +4,8 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from app.models.source_authority import normalize_source_authority
+
 
 class ActiveBlockView(BaseModel):
     symbol: str
@@ -41,6 +43,7 @@ class PressureObservationView(BaseModel):
     reason_code: str | None = None
     display_message: str | None = None
     observation_bucket: str | None = None
+    source_authority: str = "UNKNOWN"
     raw_coverage: str = "RAW_COVERAGE_UNKNOWN"
     expected_pair_admission: str = "NOT_EVALUATED"
     consumer_authority: str = "OBSERVATIONAL_ONLY"
@@ -63,6 +66,7 @@ class PressureObservationView(BaseModel):
             reason_code=_str_or_none(row.get("reason_code")),
             display_message=_str_or_none(row.get("display_message")),
             observation_bucket=_str_or_none(row.get("observation_bucket")),
+            source_authority=normalize_source_authority(row.get("source_authority")),
             raw_coverage=str(row.get("raw_coverage") or "RAW_COVERAGE_UNKNOWN"),
             expected_pair_admission=str(
                 row.get("expected_pair_admission") or "NOT_EVALUATED"

@@ -7,6 +7,7 @@ from typing import Any
 from ..config import settings
 from ..detector.sequence_builder import build_canonical_sequences
 from ..models.log_event import LogEvent
+from ..models.source_authority import SourceAuthority, normalize_source_authority
 from ..parser.signalthrottle_parser import parse_signalthrottle
 from ..parser.timestamp_mapper import to_chart_time, to_wita
 from ..scoring.pressure_grader import grade_pressure
@@ -811,7 +812,10 @@ class SignalRepository:
                     "observation_bucket": observation_bucket,
                     "reason_code": reason_code,
                     "display_message": f"{symbol} {grade} pressure observation.",
-                    "source_authority": "LEGACY_DERIVED_LOG",
+                    "source_authority": normalize_source_authority(
+                        row.get("source_authority"),
+                        default=SourceAuthority.LEGACY_OBSERVATIONAL,
+                    ),
                     "raw_coverage": "RAW_COVERAGE_UNKNOWN",
                     "expected_pair_admission": "NOT_EVALUATED",
                     "consumer_authority": "OBSERVATIONAL_ONLY",
