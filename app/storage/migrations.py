@@ -6,6 +6,13 @@ from typing import LiteralString, cast
 from psycopg import sql
 
 from app.config import settings
+from app.storage.observer_schema import (
+    OBSERVER_DURABLE_FOUNDATION_DOWN_SQL,
+    OBSERVER_DURABLE_FOUNDATION_REVISION,
+    OBSERVER_DURABLE_FOUNDATION_UP_SQL,
+    OBSERVER_DURABLE_TABLES,
+    OBSERVER_SCHEMA,
+)
 from app.storage.postgres import get_cursor
 
 logger = logging.getLogger(__name__)
@@ -46,6 +53,7 @@ async def run_migrations() -> list[dict]:
         _migration_011_cleanup_overlapping_replay_pressure_blocks,
         _migration_012_ensure_pressure_series_reason_columns,
         _migration_013_ensure_phase1_raw_logs_and_block_fields,
+        _migration_014_observer_durable_foundation,
     ]
     results: list[dict] = []
     for m in migrations:
@@ -124,6 +132,45 @@ async def get_pressure_blocks_schema_status() -> dict:
             "ok"
             if table_exists and not missing_columns and not missing_indexes
             else "DATABASE_SCHEMA_OUT_OF_SYNC"
+        ),
+    }
+
+
+async def get_observer_schema_status() -> dict:
+    async with get_cursor() as cur:
+        await cur.execute(
+            """
+            SELECT table_name
+            FROM information_schema.tables
+            WHERE table_schema = %s AND table_type = 'BASE TABLE'
+            """,
+            (OBSERVER_SCHEMA,),
+        )
+        tables = {row["table_name"] for row in await cur.fetchall()}
+        if "schema_revisions" in tables:
+            await cur.execute(
+                """
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM observer_plane.schema_revisions
+                    WHERE revision_id = %s
+                ) AS revision_current
+                """,
+                (OBSERVER_DURABLE_FOUNDATION_REVISION,),
+            )
+            row = await cur.fetchone()
+            revision_current = bool(row and row.get("revision_current"))
+        else:
+            revision_current = False
+
+    missing_tables = sorted(OBSERVER_DURABLE_TABLES - tables)
+    return {
+        "schema": OBSERVER_SCHEMA,
+        "expected_revision": OBSERVER_DURABLE_FOUNDATION_REVISION,
+        "revision_current": revision_current,
+        "missing_tables": missing_tables,
+        "status": (
+            "ok" if revision_current and not missing_tables else "OBSERVER_SCHEMA_OUT_OF_SYNC"
         ),
     }
 
@@ -704,3 +751,23 @@ async def _migration_013_ensure_phase1_raw_logs_and_block_fields() -> None:
         await _ensure_column("pressure_blocks", column_name, type_sql)
 
     logger.info("migration_013: phase1 raw logs and block metadata ensured")
+
+
+async def _migration_014_observer_durable_foundation() -> None:
+    """Create the isolated, revisioned observer-owned durable schema."""
+    async with get_cursor() as cur:
+        await cur.execute(OBSERVER_DURABLE_FOUNDATION_UP_SQL)
+    logger.info(
+        "migration_014: observer durable foundation revision %s ensured",
+        OBSERVER_DURABLE_FOUNDATION_REVISION,
+    )
+
+
+async def downgrade_observer_durable_foundation() -> None:
+    """Rollback hook for disposable-database verification only."""
+    async with get_cursor() as cur:
+        await cur.execute(OBSERVER_DURABLE_FOUNDATION_DOWN_SQL)
+    logger.info(
+        "observer durable foundation revision %s removed",
+        OBSERVER_DURABLE_FOUNDATION_REVISION,
+    )
