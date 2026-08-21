@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
 
 import app.storage.postgres as postgres
 
@@ -49,8 +50,9 @@ def test_init_db_skips_schema_sql_for_legacy_database(monkeypatch) -> None:
     executed: list[str] = []
     conn = FakeConnection([{"table_exists": True}], executed)
 
-    async def _get_connection() -> FakeConnection:
-        return conn
+    @asynccontextmanager
+    async def _get_connection():
+        yield conn
 
     monkeypatch.setattr(postgres, "get_connection", _get_connection)
     monkeypatch.setattr("pathlib.Path.read_text", lambda self, encoding="utf-8": "SELECT 1;")
@@ -66,8 +68,9 @@ def test_init_db_runs_schema_sql_for_fresh_database(monkeypatch) -> None:
     executed: list[str] = []
     conn = FakeConnection([{"table_exists": False}], executed)
 
-    async def _get_connection() -> FakeConnection:
-        return conn
+    @asynccontextmanager
+    async def _get_connection():
+        yield conn
 
     monkeypatch.setattr(postgres, "get_connection", _get_connection)
     monkeypatch.setattr("pathlib.Path.read_text", lambda self, encoding="utf-8": "SELECT 1;")
@@ -77,3 +80,9 @@ def test_init_db_runs_schema_sql_for_fresh_database(monkeypatch) -> None:
     assert any("information_schema.tables" in query for query in executed)
     assert any("SELECT 1;" in query for query in executed)
     assert conn.commit_calls == 1
+
+
+def test_pool_stats_are_empty_before_pool_is_open(monkeypatch) -> None:
+    monkeypatch.setattr(postgres, "_pool", None)
+
+    assert postgres.get_pool_stats() == {}

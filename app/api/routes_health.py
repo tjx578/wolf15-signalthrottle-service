@@ -7,8 +7,11 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
 from app.config import settings
-from app.storage.migrations import get_pressure_blocks_schema_status
-from app.storage.postgres import get_cursor
+from app.storage.migrations import (
+    get_observer_schema_status,
+    get_pressure_blocks_schema_status,
+)
+from app.storage.postgres import get_cursor, get_pool_stats
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -59,9 +62,22 @@ async def _database_readiness() -> dict[str, Any]:
                 "missing_columns": schema.get("missing_columns", []),
                 "missing_indexes": schema.get("missing_indexes", []),
             }
+        observer_schema = await get_observer_schema_status()
+        if observer_schema.get("status") != "ok":
+            return {
+                "status": "FAIL",
+                "reason_code": "OBSERVER_SCHEMA_OUT_OF_SYNC",
+                "expected_revision": observer_schema.get("expected_revision"),
+                "revision_current": observer_schema.get("revision_current", False),
+                "missing_tables": observer_schema.get("missing_tables", []),
+            }
         return {
             "status": "PASS",
-            "reason_code": "DATABASE_AND_SCHEMA_READY",
+            "reason_code": "DATABASE_POOL_AND_SCHEMAS_READY",
+            "pool": get_pool_stats(),
+            "observer_schema": "AVAILABLE",
+            "migration_revision": observer_schema.get("expected_revision"),
+            "migration_current": True,
         }
     except Exception as exc:
         logger.warning("Readiness database probe failed: %s", exc)
