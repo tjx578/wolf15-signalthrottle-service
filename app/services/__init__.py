@@ -1,0 +1,1 @@
+"""Observer-owned application services."""

@@ -10,6 +10,10 @@ class Settings(BaseSettings):
 
     database_url: str = ""
     db_schema: str = "signalthrottle"
+    database_pool_min_size: int = 1
+    database_pool_max_size: int = 5
+    database_pool_timeout_seconds: float = 30.0
+    database_pool_reconnect_timeout_seconds: float = 30.0
 
     log_timezone: str = "UTC"
     owner_timezone: str = "Asia/Makassar"
@@ -67,6 +71,18 @@ class Settings(BaseSettings):
         useful error when an old Railway variable is accidentally left enabled.
         """
         violations: list[str] = []
+        if self.database_pool_min_size < 1:
+            violations.append("DATABASE_POOL_MIN_SIZE must be at least 1")
+        if self.database_pool_max_size < self.database_pool_min_size:
+            violations.append(
+                "DATABASE_POOL_MAX_SIZE must be greater than or equal to min size"
+            )
+        if self.database_pool_timeout_seconds <= 0:
+            violations.append("DATABASE_POOL_TIMEOUT_SECONDS must be positive")
+        if self.database_pool_reconnect_timeout_seconds <= 0:
+            violations.append(
+                "DATABASE_POOL_RECONNECT_TIMEOUT_SECONDS must be positive"
+            )
         if not self.phase1_observe_only:
             violations.append("PHASE1_OBSERVE_ONLY must be true")
         if self.observer_mode.strip().lower() != "observe_only":

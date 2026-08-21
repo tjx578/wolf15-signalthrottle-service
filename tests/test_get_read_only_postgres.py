@@ -59,10 +59,6 @@ def test_owner_get_routes_and_replay_attempt_leave_postgres_state_unchanged(monk
     _bootstrap_schema(TEST_DATABASE_URL)
     monkeypatch.setattr(settings, "database_url", TEST_DATABASE_URL)
 
-    client = TestClient(
-        create_app(),
-        headers={"Authorization": "Basic b3duZXI6c2VjcmV0"},
-    )
     paths = (
         "/",
         "/partials/stats",
@@ -82,15 +78,17 @@ def test_owner_get_routes_and_replay_attempt_leave_postgres_state_unchanged(monk
         "/health/live",
         "/health/ready",
     )
-    before = _schema_checksum(TEST_DATABASE_URL, settings.db_schema)
-
-    responses = [client.get(path) for path in paths]
-    replay_attempt = client.post(
-        "/replay/logs",
-        json={"logs": "must not reach legacy replay"},
-    )
-
-    after = _schema_checksum(TEST_DATABASE_URL, settings.db_schema)
+    with TestClient(
+        create_app(),
+        headers={"Authorization": "Basic b3duZXI6c2VjcmV0"},
+    ) as client:
+        before = _schema_checksum(TEST_DATABASE_URL, settings.db_schema)
+        responses = [client.get(path) for path in paths]
+        replay_attempt = client.post(
+            "/replay/logs",
+            json={"logs": "must not reach legacy replay"},
+        )
+        after = _schema_checksum(TEST_DATABASE_URL, settings.db_schema)
     assert all(response.status_code == 200 for response in responses), [
         (path, response.status_code, response.text[:200])
         for path, response in zip(paths, responses, strict=True)
