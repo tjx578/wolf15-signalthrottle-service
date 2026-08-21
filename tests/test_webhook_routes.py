@@ -67,7 +67,7 @@ def test_webhook_log_accepts_and_updates_live_block(monkeypatch) -> None:
     assert payload["pressure_status"] == "ACTIVE"
 
 
-def test_webhook_log_duplicate_is_ignored(monkeypatch) -> None:
+def test_webhook_log_is_fail_closed_when_secret_is_missing(monkeypatch) -> None:
     FakeSignalRepository.duplicate = True
     monkeypatch.setattr(routes_webhook.settings, "webhook_secret", None)
     client = _make_client(monkeypatch)
@@ -82,7 +82,25 @@ def test_webhook_log_duplicate_is_ignored(monkeypatch) -> None:
         },
     )
 
+    assert response.status_code == 503
+    assert response.json()["detail"] == "webhook authentication is not configured"
+
+
+def test_webhook_log_duplicate_is_ignored_with_valid_secret(monkeypatch) -> None:
+    FakeSignalRepository.duplicate = True
+    monkeypatch.setattr(routes_webhook.settings, "webhook_secret", "secret")
+    client = _make_client(monkeypatch)
+
+    response = client.post(
+        "/webhook/log",
+        headers={"X-Wolf15-Secret": "secret"},
+        json={
+            "event": "signal_throttle",
+            "symbol": "USDJPY",
+            "timestamp_utc": "2026-04-27T02:00:05Z",
+            "message": "[SignalThrottle] USDJPY THROTTLED — 3 signals in last 300s (max 3)",
+        },
+    )
+
     assert response.status_code == 200
-    payload = response.json()
-    assert payload["status"] == "duplicate_ignored"
-    assert payload["symbol"] == "USDJPY"
+    assert response.json()["status"] == "duplicate_ignored"

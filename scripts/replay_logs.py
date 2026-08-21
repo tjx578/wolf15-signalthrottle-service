@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""
-CLI script to replay raw signal throttle logs via the /replay/logs endpoint.
+"""LEGACY_UNSAFE_REPLAY — NOT_FOR_PRODUCTION.
 
-This script is designed to be used as a Railway worker to test replay functionality.
+Historical CLI for the removed ``/replay/logs`` endpoint. The production image
+excludes ``scripts/`` and the endpoint is intentionally not registered. Keep
+this file only as research input for the PR-02 durable isolated replay design.
 
 Usage:
     python scripts/replay_logs.py <log_file> --url <service_url> [--auth USER:PASS]
 
-Example (Railway worker start command):
+Historical local example (the request now returns 404):
     python scripts/replay_logs.py tests/fixtures/usdjpy_bplus_replay.log \\
         --url $SIGNAL_THROTTLE_URL && sleep 3600
 """
@@ -16,6 +17,7 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import uuid
 from pathlib import Path
 
 import httpx
@@ -29,12 +31,9 @@ def _format_json(data: dict) -> str:
 def main() -> int:
     """Run the replay test."""
     parser = argparse.ArgumentParser(
-        description="Replay SignalThrottle logs to service",
+        description="LEGACY_UNSAFE_REPLAY research CLI (production endpoint removed)",
         epilog="""
 Examples:
-  python scripts/replay_logs.py tests/fixtures/usdjpy_bplus_replay.log \\
-    --url https://wolf15-signalthrottle-service-production.up.railway.app
-
   python scripts/replay_logs.py tests/fixtures/usdjpy_bplus_replay.log \\
     --url http://localhost:8000 --auth admin:password
         """,
@@ -51,19 +50,9 @@ Examples:
         help="Basic auth credentials (format: username:password)",
     )
     parser.add_argument(
-        "--symbol",
-        default="USDJPY",
-        help="Symbol to check in /market/snapshot (default: USDJPY)",
-    )
-    parser.add_argument(
         "--skip-health",
         action="store_true",
         help="Skip health check",
-    )
-    parser.add_argument(
-        "--skip-market",
-        action="store_true",
-        help="Skip market snapshot check",
     )
     parser.add_argument(
         "--skip-signals",
@@ -93,7 +82,11 @@ Examples:
     print(f"🎯 Service URL: {args.url}\n")
 
     # Setup auth headers
-    headers = {}
+    headers = {
+        "X-Owner-CSRF": "1",
+        "X-Owner-Request-ID": f"replay-cli-{uuid.uuid4()}",
+        "X-Owner-Reason": "manual_observational_replay",
+    }
     if args.auth:
         try:
             username, password = args.auth.split(":", 1)
@@ -122,27 +115,8 @@ Examples:
                     print("   ❌ Connection error - is service running?")
                     return 1
 
-            # Step 2: Market snapshot
-            if not args.skip_market:
-                print(f"2️⃣ Market snapshot for {args.symbol}...")
-                try:
-                    market = client.get(f"{base_url}/market/snapshot/{args.symbol}")
-                    if market.status_code != 200:
-                        print(f"   ❌ Failed: {market.status_code}")
-                    else:
-                        data = market.json()
-                        counts = data.get("counts", {})
-                        print(
-                            f"   ✅ M15={counts.get('M15')}, "
-                            f"H1={counts.get('H1')}, "
-                            f"H4={counts.get('H4')}, "
-                            f"D1={counts.get('D1')} candles\n"
-                        )
-                except Exception as e:
-                    print(f"   ⚠️  Market check failed: {e}\n")
-
-            # Step 3: Replay logs
-            print("3️⃣ Replaying logs...")
+            # Step 2: Replay logs
+            print("2️⃣ Replaying logs...")
             try:
                 replay = client.post(
                     f"{base_url}/replay/logs",
@@ -173,10 +147,9 @@ Examples:
                 print(f"   - Events parsed: {data.get('events_parsed')}")
                 print(f"   - Events stored: {data.get('events_stored')}")
                 print(f"   - Duplicates: {data.get('duplicates_skipped')}")
-                print(f"   - Blocks detected: {data.get('canonical_blocks_detected')}")
+                print(f"   - Observational blocks: {data.get('observational_blocks_detected')}")
                 print(f"   - Blocks created: {data.get('blocks_created')}")
-                print(f"   - Blocks updated: {data.get('blocks_updated')}")
-                print(f"   - Trade plans: {data.get('trade_plans_created')}\n")
+                print(f"   - Blocks updated: {data.get('blocks_updated')}\n")
 
                 # Show block details
                 blocks = data.get("blocks", [])
@@ -188,23 +161,26 @@ Examples:
                         print(f"       Duration: {block.get('duration_minutes'):.2f} min")
                         print(f"       Events: {block.get('event_count')}")
                         print(f"       Density: {block.get('density_per_minute'):.2f}/min")
-                        print(f"       Trade plan: {block.get('trade_plan_created')}\n")
+                        print("       Execution allowed: false\n")
 
             except httpx.RequestError as e:
                 print(f"   ❌ Request failed: {e}")
                 return 1
 
-            # Step 4: Check signals
+            # Step 3: Check observations
             if not args.skip_signals:
-                print("4️⃣ Checking latest signals...")
+                print("3️⃣ Checking latest observations...")
                 try:
-                    signals = client.get(f"{base_url}/signals/latest?limit=5")
+                    signals = client.get(
+                        f"{base_url}/signals/latest?limit=5",
+                        headers=headers,
+                    )
                     if signals.status_code == 200:
                         data = signals.json()
                         count = data.get("count", 0)
-                        print(f"   ✅ Found {count} signals")
-                        if data.get("signals"):
-                            latest = data["signals"][0]
+                        print(f"   ✅ Found {count} observations")
+                        if data.get("observations"):
+                            latest = data["observations"][0]
                             print(f"      Latest: {latest.get('symbol')} ({latest.get('pressure_grade')})\n")
                     else:
                         print(f"   ⚠️  Status {signals.status_code}\n")

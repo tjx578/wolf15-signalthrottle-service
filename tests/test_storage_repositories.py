@@ -650,7 +650,6 @@ def test_get_signal_series_detail_dedupes_exact_raw_blocks(monkeypatch) -> None:
         "latest_trade_plan_id": None,
         "block_ids": [23],
     }
-    latest_snapshot = {"block_id": 23, "chart_phase": "PIVOT_RECLAIM_CONTINUATION"}
     raw_blocks = [
         {
             "id": 13,
@@ -722,7 +721,6 @@ def test_get_signal_series_detail_dedupes_exact_raw_blocks(monkeypatch) -> None:
 
     cursors = [
         FakeCursor(fetchone_responses=[series_row]),
-        FakeCursor(fetchone_responses=[latest_snapshot]),
         FakeCursor(fetchall_responses=[raw_blocks]),
     ]
 

@@ -743,6 +743,87 @@ class SignalRepository:
     ) -> list[dict]:
         return await self.get_block_history(symbol=symbol, limit=limit)
 
+    async def get_latest_pressure_observations(
+        self,
+        limit: int = 50,
+        bucket: str = "all",
+    ) -> list[dict]:
+        """Return an observational-only projection of pressure blocks.
+
+        This projection deliberately does not join market snapshots, trade
+        plans, outcomes, or execution-oriented tables.  Legacy rows remain in
+        storage for preservation, but the production observer does not expose
+        them as live authority.
+        """
+        normalized_bucket = bucket.strip().lower()
+        if normalized_bucket not in {"all", "failed", "radar", "priority", "active"}:
+            normalized_bucket = "all"
+
+        rows = await self.get_block_history(limit=max(limit * 20, 100))
+        observations: list[dict] = []
+        eligible_grades = {"B+", "A-", "A", "A+"}
+
+        for row in rows:
+            grade = str(row.get("pressure_grade") or "UNKNOWN")
+            is_active = bool(row.get("is_active"))
+            if grade == "FAILED_MIN_DURATION":
+                observation_bucket = "failed"
+                reason_code = "FAILED_MIN_DURATION"
+            elif grade == "REJECT":
+                observation_bucket = "radar"
+                reason_code = "OBSERVED_GAP_EXCEEDS_POLICY"
+            elif grade in eligible_grades:
+                observation_bucket = "priority"
+                reason_code = "OWNER_PRIORITY_PRESSURE"
+            else:
+                observation_bucket = "radar"
+                reason_code = "PRESSURE_BELOW_OWNER_PRIORITY"
+
+            if normalized_bucket == "active" and not is_active:
+                continue
+            if normalized_bucket not in {"all", "active", observation_bucket}:
+                continue
+
+            symbol = str(row.get("symbol") or "-")
+            observations.append(
+                {
+                    "id": row.get("id"),
+                    "block_id": row.get("id"),
+                    "symbol": symbol,
+                    "start_utc": row.get("start_utc"),
+                    "end_utc": row.get("end_utc"),
+                    "start_wita": row.get("start_wita"),
+                    "end_wita": row.get("end_wita"),
+                    "duration_minutes": row.get("duration_minutes"),
+                    "event_count": row.get("event_count"),
+                    "density_per_minute": row.get("density_per_minute"),
+                    "avg_gap_seconds": row.get("avg_gap_seconds"),
+                    "max_gap_seconds": row.get("max_gap_seconds"),
+                    "pressure_grade": grade,
+                    "pressure_status": row.get("pressure_status"),
+                    "finalize_mode": row.get("finalize_mode"),
+                    "block_mode": row.get("block_mode"),
+                    "pressure_temperature": row.get("pressure_temperature"),
+                    "wave_count": row.get("wave_count"),
+                    "interrupted_by": row.get("interrupted_by"),
+                    "theme_cluster": row.get("theme_cluster"),
+                    "is_active": is_active,
+                    "observation_bucket": observation_bucket,
+                    "reason_code": reason_code,
+                    "display_message": f"{symbol} {grade} pressure observation.",
+                    "source_authority": "LEGACY_DERIVED_LOG",
+                    "raw_coverage": "RAW_COVERAGE_UNKNOWN",
+                    "expected_pair_admission": "NOT_EVALUATED",
+                    "consumer_authority": "OBSERVATIONAL_ONLY",
+                    "valid_for_execution": False,
+                    "execution_command_allowed": False,
+                }
+            )
+            if len(observations) >= limit:
+                break
+
+        return observations
+
     async def refresh_pressure_series(self, symbol: str | None = None) -> None:
         rows = await self.get_block_history(symbol=symbol, limit=None)
         merged = _merge_pressure_series(
@@ -822,7 +903,6 @@ class SignalRepository:
         symbol: str | None = None,
         limit: int = 50,
     ) -> list[dict]:
-        await self.refresh_pressure_series(symbol=symbol)
         async with get_cursor() as cur:
             if symbol:
                 await cur.execute(
@@ -847,7 +927,6 @@ class SignalRepository:
             return [_with_series_metadata(row) for row in rows]
 
     async def get_signal_series_detail(self, symbol: str) -> dict | None:
-        await self.refresh_pressure_series(symbol=symbol)
         async with get_cursor() as cur:
             await cur.execute(
                 """
@@ -873,33 +952,8 @@ class SignalRepository:
         async with get_cursor() as cur:
             await cur.execute(
                 """
-                SELECT *
-                FROM market_snapshots
-                WHERE block_id = %s
-                ORDER BY created_at DESC
-                LIMIT 1
-                """,
-                (series["latest_block_id"],),
-            )
-            latest_snapshot = await cur.fetchone()
-
-        async with get_cursor() as cur:
-            await cur.execute(
-                """
-                SELECT
-                    pb.*,
-                    tp.id AS trade_plan_id,
-                    tp.execution_grade,
-                    tp.action,
-                    tp.message
+                SELECT pb.*
                 FROM pressure_blocks pb
-                LEFT JOIN LATERAL (
-                    SELECT *
-                    FROM trade_plans tp
-                    WHERE tp.block_id = pb.id
-                    ORDER BY tp.created_at DESC
-                    LIMIT 1
-                ) tp ON TRUE
                 WHERE pb.symbol = %s
                   AND pb.start_utc <= %s
                   AND pb.end_utc >= %s
@@ -920,17 +974,13 @@ class SignalRepository:
             )
         ]
 
-        trade_plan = None
-        if series.get("latest_trade_plan_id"):
-            trade_plan = await self.get_trade_plan(series["latest_trade_plan_id"])
-
         return {
             "series": _with_series_metadata(series),
-            "latest_snapshot": latest_snapshot,
             "blocks": blocks,
-            "trade_plan": trade_plan,
             "throttle_states": throttle_states,
             "raw_signal_events": len(series_events),
+            "consumer_authority": "OBSERVATIONAL_ONLY",
+            "valid_for_execution": False,
         }
 
     async def get_last_finalized_block(self, symbol: str) -> dict | None:
@@ -1285,23 +1335,14 @@ class SignalRepository:
             active_row = await cur.fetchone()
             active = active_row["cnt"] if active_row else 0
 
-            if settings.signalthrottle_mode.lower() == "phase1":
-                await cur.execute(
-                    """
-                    SELECT COUNT(*) AS cnt FROM pressure_blocks
-                    WHERE end_utc > NOW() - INTERVAL '24 hours'
-                      AND duration_minutes >= %s
-                    """,
-                    (settings.min_radar_minutes,),
-                )
-            else:
-                await cur.execute(
-                    """
-                    SELECT COUNT(*) AS cnt FROM trade_plans
-                    WHERE execution_grade IN ('A', 'A+')
-                      AND created_at > NOW() - INTERVAL '24 hours'
-                    """
-                )
+            await cur.execute(
+                """
+                SELECT COUNT(*) AS cnt FROM pressure_blocks
+                WHERE end_utc > NOW() - INTERVAL '24 hours'
+                  AND duration_minutes >= %s
+                """,
+                (settings.min_radar_minutes,),
+            )
             priority_row = await cur.fetchone()
             priority = priority_row["cnt"] if priority_row else 0
 

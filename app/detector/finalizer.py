@@ -4,7 +4,6 @@ import logging
 from datetime import datetime, timezone
 
 from app.config import settings
-from app.planner.market_context import enrich_block_with_market_context
 from app.storage.repository_protocols import FinalizerRepository
 from app.storage.repositories import SignalRepository
 
@@ -72,20 +71,6 @@ class SignalFinalizer:
 
         logger.info("Soft finalizing block id=%s symbol=%s", block["id"], block["symbol"])
         await self.repo.mark_block_soft_finalized(block["id"])
-
-        finalized_block = {
-            **block,
-            "pressure_status": "SOFT_FINALIZED",
-            "finalize_mode": "SOFT_FINALIZED",
-            "is_active": False,
-        }
-        trade_plan = await enrich_block_with_market_context(finalized_block, self.repo)
-        if trade_plan:
-            logger.info(
-                "Trade plan created block_id=%s symbol=%s",
-                block["id"],
-                block["symbol"],
-            )
 
     async def _hard_finalize(self, block: dict) -> None:
         if block.get("pressure_status") == "HARD_FINALIZED":

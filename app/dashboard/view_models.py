@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-
 from typing import Any
 
 from pydantic import BaseModel
@@ -29,80 +27,49 @@ class ActiveBlockView(BaseModel):
         )
 
 
-class TradeSignalView(BaseModel):
+class PressureObservationView(BaseModel):
     id: int | None = None
-    trade_plan_id: int | None = None
     block_id: int | None = None
     symbol: str
     pressure_grade: str | None = None
-    execution_grade: str | None = None
-    action: str | None = None
-    signal_end_wita: str | None
-    chart_phase: str | None
-    market_context_status: str | None = None
-    trade_plan_status: str | None = None
+    pressure_status: str | None = None
+    end_wita: str | None = None
     density_per_minute: float | None = None
-    density_state: str | None = None
     duration_minutes: float | None = None
     event_count: int | None = None
     max_gap_seconds: float | None = None
     reason_code: str | None = None
     display_message: str | None = None
-    message: str | None = None
-    dashboard_bucket: str | None = None
-    owner_alert: str | None = None
-    h4_structure: str | None = None
-    h4_context_type: str | None = None
-    standalone_grade: str | None = None
-    chain_adjusted_grade: str | None = None
-    chain_type: str | None = None
-    execution_mode: str | None = None
-    previous_block_grade: str | None = None
-    previous_block_end_wita: str | None = None
-    gap_from_previous_minutes: float | None = None
-    grade_note: str | None = None
-    payload: dict[str, Any] | list[Any] | str | None = None
+    observation_bucket: str | None = None
+    raw_coverage: str = "RAW_COVERAGE_UNKNOWN"
+    expected_pair_admission: str = "NOT_EVALUATED"
+    consumer_authority: str = "OBSERVATIONAL_ONLY"
+    valid_for_execution: bool = False
+    execution_command_allowed: bool = False
 
     @classmethod
-    def from_row(cls, row: dict[str, Any]) -> "TradeSignalView":
-        payload = _normalize_payload(row.get("payload"))
-        snapshot = payload.get("snapshot") if isinstance(payload, dict) else {}
-        chain_context = payload.get("chain_context") if isinstance(payload, dict) else {}
+    def from_row(cls, row: dict[str, Any]) -> "PressureObservationView":
         return cls(
             id=_int_or_none(row.get("id")),
-            trade_plan_id=_int_or_none(row.get("trade_plan_id")),
             block_id=_int_or_none(row.get("block_id") or row.get("id")),
             symbol=str(row.get("symbol") or "-"),
             pressure_grade=_str_or_none(row.get("pressure_grade")),
-            execution_grade=_str_or_none(row.get("execution_grade")),
-            action=_str_or_none(row.get("action")),
-            signal_end_wita=_str_or_none(row.get("signal_end_wita") or row.get("end_wita")),
-            chart_phase=_str_or_none(row.get("chart_phase")),
-            market_context_status=_str_or_none(row.get("market_context_status")),
-            trade_plan_status=_str_or_none(row.get("trade_plan_status")),
+            pressure_status=_str_or_none(row.get("pressure_status")),
+            end_wita=_str_or_none(row.get("end_wita")),
             density_per_minute=_float_or_none(row.get("density_per_minute")),
-            density_state=_str_or_none(row.get("density_state")),
             duration_minutes=_float_or_none(row.get("duration_minutes")),
             event_count=_int_or_none(row.get("event_count")),
             max_gap_seconds=_float_or_none(row.get("max_gap_seconds")),
             reason_code=_str_or_none(row.get("reason_code")),
-            display_message=_str_or_none(row.get("display_message") or row.get("message")),
-            message=_str_or_none(row.get("message")),
-            dashboard_bucket=_str_or_none(row.get("dashboard_bucket")),
-            owner_alert=_str_or_none(row.get("owner_alert")),
-            h4_structure=_str_or_none(row.get("h4_structure") or snapshot.get("h4_structure")),
-            h4_context_type=_str_or_none(row.get("h4_context_type") or snapshot.get("h4_context_type")),
-            standalone_grade=_str_or_none(row.get("standalone_grade") or chain_context.get("standalone_grade")),
-            chain_adjusted_grade=_str_or_none(row.get("chain_adjusted_grade") or chain_context.get("chain_adjusted_grade")),
-            chain_type=_str_or_none(row.get("chain_type") or chain_context.get("chain_type")),
-            execution_mode=_str_or_none(row.get("execution_mode") or chain_context.get("execution_mode")),
-            previous_block_grade=_str_or_none(row.get("previous_block_grade") or chain_context.get("previous_block_grade")),
-            previous_block_end_wita=_str_or_none(row.get("previous_block_end_wita") or chain_context.get("previous_block_end_wita")),
-            gap_from_previous_minutes=_float_or_none(
-                row.get("gap_from_previous_minutes") or chain_context.get("gap_from_previous_minutes")
+            display_message=_str_or_none(row.get("display_message")),
+            observation_bucket=_str_or_none(row.get("observation_bucket")),
+            raw_coverage=str(row.get("raw_coverage") or "RAW_COVERAGE_UNKNOWN"),
+            expected_pair_admission=str(
+                row.get("expected_pair_admission") or "NOT_EVALUATED"
             ),
-            grade_note=_str_or_none(row.get("grade_note")),
-            payload=payload,
+            consumer_authority="OBSERVATIONAL_ONLY",
+            valid_for_execution=False,
+            execution_command_allowed=False,
         )
 
 
@@ -110,26 +77,12 @@ def build_active_block_view(row: dict[str, Any]) -> dict[str, Any]:
     return ActiveBlockView.from_row(row).model_dump()
 
 
-def build_trade_signal_view(row: dict[str, Any] | None) -> dict[str, Any] | None:
+def build_pressure_observation_view(
+    row: dict[str, Any] | None,
+) -> dict[str, Any] | None:
     if row is None:
         return None
-    return TradeSignalView.from_row(row).model_dump()
-
-
-def _normalize_payload(payload: Any) -> dict[str, Any] | list[Any] | str | None:
-    if payload is None:
-        return None
-    if isinstance(payload, (dict, list)):
-        return payload
-    if isinstance(payload, str):
-        try:
-            parsed = json.loads(payload)
-        except json.JSONDecodeError:
-            return payload
-        if isinstance(parsed, (dict, list)):
-            return parsed
-        return payload
-    return str(payload)
+    return PressureObservationView.from_row(row).model_dump()
 
 
 def _str_or_none(value: Any) -> str | None:

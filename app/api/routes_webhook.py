@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import secrets
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Header, HTTPException
@@ -40,8 +41,12 @@ async def receive_signal_throttle(
     payload: SignalThrottleWebhookPayload,
     x_wolf15_secret: str | None = Header(default=None),
 ):
-    # Auth check
-    if settings.webhook_secret and x_wolf15_secret != settings.webhook_secret:
+    if not settings.webhook_auth_configured():
+        raise HTTPException(status_code=503, detail="webhook authentication is not configured")
+    if x_wolf15_secret is None or not secrets.compare_digest(
+        x_wolf15_secret,
+        settings.webhook_secret or "",
+    ):
         raise HTTPException(status_code=401, detail="invalid webhook secret")
 
     if payload.event != "signal_throttle":

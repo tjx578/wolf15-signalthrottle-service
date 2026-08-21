@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Wolf15 SignalThrottle Dashboard</title>
+  <title>Wolf15 Pressure Observatory</title>
   <link rel="stylesheet" href="/static/app.css" />
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
 </head>
 <body {% block body_attrs %}{% endblock %}>
   <header class="topbar">
     <div>
-      <h1>Wolf15 SignalThrottle</h1>
-      <p>Pressure intelligence dashboard</p>
+      <h1>Wolf15 Pressure Observatory</h1>
+      <p>OBSERVER MODE: OBSERVE_ONLY · AUTHORITY: OBSERVATIONAL_ONLY</p>
     </div>
     <nav class="nav-groups" aria-label="Owner navigation">
       <div class="nav-group">
@@ -19,34 +19,17 @@
         <div class="nav-links">
           <a href="/">Overview</a>
           <a href="/#active-pressure">Active</a>
-          {% if not phase1_mode %}
-          <a href="/#trade-plan-ready">Ready</a>
-          {% endif %}
         </div>
       </div>
       <div class="nav-group">
         <span class="nav-group-label">Engine Logs</span>
         <div class="nav-links">
           <a href="/engine-logs/daily">Daily</a>
-          <a href="/#replay-logs">Replay</a>
         </div>
       </div>
-      {% if not phase1_mode %}
       <div class="nav-group">
-        <span class="nav-group-label">Outcomes</span>
-        <div class="nav-links">
-          <a href="/#outcome-summary">Summary</a>
-          <a href="/#latest-outcomes">Latest</a>
-        </div>
-      </div>
-      {% endif %}
-      <div class="nav-group">
-        <span class="nav-group-label">Debug</span>
-        <div class="nav-links">
-          <a href="/debug/sync">Sync</a>
-          <a href="/debug/schema">Schema</a>
-          <a href="/docs">API Docs</a>
-        </div>
+        <span class="nav-group-label">Service</span>
+        <div class="nav-links"><a href="/docs">Observer API</a></div>
       </div>
     </nav>
   </header>
@@ -56,7 +39,7 @@
   </main>
 
   <footer class="footer">
-    <p>wolf15-signalthrottle-service v0.1.0</p>
+    <p>wolf15-signalthrottle-service v0.2.0 · execution authority: zero</p>
   </footer>
 
   <script src="/static/app.js"></script>

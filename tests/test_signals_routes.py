@@ -2,11 +2,18 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from fastapi.testclient import TestClient
+from fastapi.testclient import TestClient as RawTestClient
 
 import app.api.routes_signals as routes_signals
 import app.lifecycle as lifecycle
 from app.main import create_app
+
+
+def TestClient(app):
+    return RawTestClient(
+        app,
+        headers={"Authorization": "Basic b3duZXI6c2VjcmV0"},
+    )
 
 
 async def _noop() -> None:
@@ -283,6 +290,30 @@ class FakeSignalRepository:
         }
         return data[bucket][:limit]
 
+    async def get_latest_pressure_observations(
+        self, limit: int = 50, bucket: str = "all"
+    ) -> list[dict]:
+        if bucket in {"failed", "active"}:
+            return []
+        rows = await self.get_latest_signals(limit=limit, bucket=bucket)
+        observations = []
+        for row in rows:
+            observations.append(
+                {
+                    "id": row["block_id"],
+                    "block_id": row["block_id"],
+                    "symbol": row["symbol"],
+                    "pressure_grade": row["pressure_grade"],
+                    "observation_bucket": bucket,
+                    "raw_coverage_status": "RAW_COVERAGE_UNKNOWN",
+                    "expected_admission_status": "NOT_EVALUATED",
+                    "consumer_authority": "OBSERVATIONAL_ONLY",
+                    "valid_for_execution": False,
+                    "execution_allowed": False,
+                }
+            )
+        return observations
+
     async def get_trade_plan(self, signal_id: int) -> dict | None:
         if signal_id != 2:
             return None
@@ -314,7 +345,7 @@ class FakeSignalRepository:
         }
 
 
-def test_latest_signals_supports_bucket_filter(monkeypatch) -> None:
+def test_latest_observations_supports_priority_bucket(monkeypatch) -> None:
     monkeypatch.setattr(lifecycle, "init_db", _noop)
     monkeypatch.setattr(lifecycle, "run_migrations", _noop)
     monkeypatch.setattr(lifecycle, "close_db", _noop)
@@ -323,19 +354,18 @@ def test_latest_signals_supports_bucket_filter(monkeypatch) -> None:
     app = create_app()
     client = TestClient(app)
 
-    response = client.get("/signals/latest", params={"bucket": "actionable"})
+    response = client.get("/signals/latest", params={"bucket": "priority"})
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["bucket"] == "actionable"
+    assert payload["bucket"] == "priority"
     assert payload["count"] == 1
-    assert payload["signals"][0]["symbol"] == "USDJPY"
-    assert payload["signals"][0]["trade_plan_status"] == "READY"
-    assert payload["signals"][0]["h4_structure"] == "BULLISH_CONTINUATION"
-    assert payload["signals"][0]["h4_context_type"] == "CONTINUATION_TREND"
-    assert payload["signals"][0]["chain_adjusted_grade"] == "A"
-    assert payload["signals"][0]["chain_type"] == "CONTINUATION_PULSE_AFTER_A_PLUS"
-    assert payload["signals"][0]["execution_mode"] == "INSTANT_EXECUTION_CANDIDATE"
+    assert payload["observer_mode"] == "OBSERVE_ONLY"
+    assert payload["containment_profile"] == "PHASE1_OBSERVE_ONLY"
+    assert payload["observations"][0]["symbol"] == "USDJPY"
+    assert payload["observations"][0]["consumer_authority"] == "OBSERVATIONAL_ONLY"
+    assert payload["observations"][0]["valid_for_execution"] is False
+    assert "h4_structure" not in payload["observations"][0]
 
 
 def test_latest_signals_invalid_bucket_falls_back_to_all(monkeypatch) -> None:
@@ -353,7 +383,7 @@ def test_latest_signals_invalid_bucket_falls_back_to_all(monkeypatch) -> None:
     payload = response.json()
     assert payload["bucket"] == "all"
     assert payload["count"] == 4
-    assert payload["signals"][0]["symbol"] == "EURGBP"
+    assert payload["observations"][0]["symbol"] == "EURGBP"
 
 
 def test_engine_logs_daily_api_returns_observability_summary(monkeypatch) -> None:
@@ -410,7 +440,7 @@ def test_engine_logs_daily_api_returns_observability_summary(monkeypatch) -> Non
     assert payload["symbols"][0]["symbol"] == "NZDCHF"
     assert payload["symbols"][0]["failure_reason"] == "PARSED_ONLY_NO_PROMOTION"
 
-def test_latest_signals_watchlist_includes_b_plus(monkeypatch) -> None:
+def test_latest_signals_legacy_watchlist_bucket_falls_back_to_all(monkeypatch) -> None:
     monkeypatch.setattr(lifecycle, "init_db", _noop)
     monkeypatch.setattr(lifecycle, "run_migrations", _noop)
     monkeypatch.setattr(lifecycle, "close_db", _noop)
@@ -423,15 +453,9 @@ def test_latest_signals_watchlist_includes_b_plus(monkeypatch) -> None:
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["bucket"] == "watchlist"
-    assert payload["count"] == 1
-    assert payload["signals"][0]["symbol"] == "GBPUSD"
-    assert payload["signals"][0]["trade_plan_status"] == "TRADE_PLAN_REQUIRED"
-    assert payload["signals"][0]["execution_grade"] is None
-    assert payload["signals"][0]["dashboard_bucket"] == "watchlist_trade_plan_pending"
-    assert payload["signals"][0]["owner_alert"] == "PENDING"
-    assert payload["signals"][0]["h4_structure"] == "BEARISH_CONTINUATION"
-    assert payload["signals"][0]["h4_context_type"] == "CONTINUATION_TREND"
+    assert payload["bucket"] == "all"
+    assert payload["count"] == 4
+    assert all(item["execution_allowed"] is False for item in payload["observations"])
 
 
 def test_latest_signals_priority_returns_a_grades(monkeypatch) -> None:
@@ -449,10 +473,9 @@ def test_latest_signals_priority_returns_a_grades(monkeypatch) -> None:
     payload = response.json()
     assert payload["bucket"] == "priority"
     assert payload["count"] == 1
-    assert payload["signals"][0]["pressure_grade"] == "A"
-    assert payload["signals"][0]["dashboard_bucket"] == "trade_plan_ready"
-    assert payload["signals"][0]["h4_structure"] == "BULLISH_CONTINUATION"
-    assert payload["signals"][0]["h4_context_type"] == "CONTINUATION_TREND"
+    assert payload["observations"][0]["pressure_grade"] == "A"
+    assert payload["observations"][0]["expected_admission_status"] == "NOT_EVALUATED"
+    assert "execution_grade" not in payload["observations"][0]
 
 
 def test_latest_signals_radar_returns_below_threshold_rows(monkeypatch) -> None:
@@ -470,13 +493,13 @@ def test_latest_signals_radar_returns_below_threshold_rows(monkeypatch) -> None:
     payload = response.json()
     assert payload["bucket"] == "radar"
     assert payload["count"] == 1
-    assert payload["signals"][0]["symbol"] == "EURGBP"
-    assert payload["signals"][0]["dashboard_bucket"] == "radar_below_threshold"
-    assert "h4_structure" in payload["signals"][0]
-    assert "h4_context_type" in payload["signals"][0]
+    assert payload["observations"][0]["symbol"] == "EURGBP"
+    assert payload["observations"][0]["observation_bucket"] == "radar"
+    assert "h4_structure" not in payload["observations"][0]
+    assert "h4_context_type" not in payload["observations"][0]
 
 
-def test_trade_plans_endpoint_exposes_explicit_h4_structure_contract(monkeypatch) -> None:
+def test_trade_plans_endpoint_is_not_mounted(monkeypatch) -> None:
     monkeypatch.setattr(lifecycle, "init_db", _noop)
     monkeypatch.setattr(lifecycle, "run_migrations", _noop)
     monkeypatch.setattr(lifecycle, "close_db", _noop)
@@ -487,16 +510,10 @@ def test_trade_plans_endpoint_exposes_explicit_h4_structure_contract(monkeypatch
 
     response = client.get("/signals/trade-plans", params={"bucket": "watchlist"})
 
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["bucket"] == "watchlist"
-    assert payload["count"] == 2
-    assert payload["trade_plans"][1]["symbol"] == "EURUSD"
-    assert payload["trade_plans"][1]["h4_structure"] == "BEARISH_EXHAUSTION_RISK"
-    assert payload["trade_plans"][1]["h4_context_type"] == "FAILED_BREAKDOWN_ACCEPTANCE"
+    assert response.status_code == 404
 
 
-def test_trade_plans_invalid_bucket_falls_back_to_all(monkeypatch) -> None:
+def test_trade_plans_endpoint_remains_absent_for_any_query(monkeypatch) -> None:
     monkeypatch.setattr(lifecycle, "init_db", _noop)
     monkeypatch.setattr(lifecycle, "run_migrations", _noop)
     monkeypatch.setattr(lifecycle, "close_db", _noop)
@@ -507,13 +524,10 @@ def test_trade_plans_invalid_bucket_falls_back_to_all(monkeypatch) -> None:
 
     response = client.get("/signals/trade-plans", params={"bucket": "unknown"})
 
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["bucket"] == "all"
-    assert payload["count"] == 3
+    assert response.status_code == 404
 
 
-def test_signal_detail_exposes_h4_contract_fields(monkeypatch) -> None:
+def test_signal_detail_endpoint_is_not_mounted(monkeypatch) -> None:
     monkeypatch.setattr(lifecycle, "init_db", _noop)
     monkeypatch.setattr(lifecycle, "run_migrations", _noop)
     monkeypatch.setattr(lifecycle, "close_db", _noop)
@@ -524,14 +538,7 @@ def test_signal_detail_exposes_h4_contract_fields(monkeypatch) -> None:
 
     response = client.get("/signals/2")
 
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["h4_structure"] == "BULLISH_CONTINUATION"
-    assert payload["h4_context_type"] == "CONTINUATION_TREND"
-    assert payload["chain_adjusted_grade"] == "A"
-    assert payload["chain_type"] == "CONTINUATION_PULSE_AFTER_A_PLUS"
-    assert payload["execution_mode"] == "INSTANT_EXECUTION_CANDIDATE"
-    assert payload["gap_from_previous_minutes"] == 4.82
+    assert response.status_code == 404
 
 
 def test_signal_history_returns_raw_block_history(monkeypatch) -> None:

@@ -126,74 +126,6 @@
     {% endif %}
   </section>
 
-  {% if detail.trade_plan %}
-  <section class="panel">
-    <h3>Latest Trade Plan</h3>
-    <p>{{ detail.trade_plan.display_message or detail.trade_plan.message or '-' }}</p>
-    <p><a href="/signal-detail/{{ detail.trade_plan.trade_plan_id or detail.trade_plan.id }}">Open trade plan detail</a></p>
-  </section>
-  {% endif %}
-
-  {% if detail.latest_snapshot %}
-  <section class="panel">
-    <h3>Latest Market Snapshot</h3>
-    <div class="detail-grid">
-      <div class="detail-item">
-        <span class="label">Chart Phase</span>
-        <strong>{{ detail.latest_snapshot.chart_phase or '-' }}</strong>
-      </div>
-      <div class="detail-item">
-        <span class="label">H4 Structure</span>
-        <strong>{{ detail.latest_snapshot.h4_structure or '-' }}</strong>
-      </div>
-      <div class="detail-item">
-        <span class="label">Key Level</span>
-        <strong>{{ detail.latest_snapshot.key_level or '-' }}</strong>
-      </div>
-      <div class="detail-item">
-        <span class="label">Pivot Mid</span>
-        <strong>{{ detail.latest_snapshot.pivot_mid or '-' }}</strong>
-      </div>
-      <div class="detail-item">
-        <span class="label">Range Low</span>
-        <strong>{{ detail.latest_snapshot.range_low or '-' }}</strong>
-      </div>
-      <div class="detail-item">
-        <span class="label">Range High</span>
-        <strong>{{ detail.latest_snapshot.range_high or '-' }}</strong>
-      </div>
-      <div class="detail-item">
-        <span class="label">Reclaim Level</span>
-        <strong>{{ detail.latest_snapshot.reclaim_level or '-' }}</strong>
-      </div>
-      <div class="detail-item">
-        <span class="label">Breakdown Level</span>
-        <strong>{{ detail.latest_snapshot.breakdown_level or '-' }}</strong>
-      </div>
-      <div class="detail-item">
-        <span class="label">Breakout Level</span>
-        <strong>{{ detail.latest_snapshot.breakout_level or '-' }}</strong>
-      </div>
-      <div class="detail-item">
-        <span class="label">Demand Zone</span>
-        <strong>{{ detail.latest_snapshot.nearest_demand_zone or detail.latest_snapshot.support_zone or '-' }}</strong>
-      </div>
-      <div class="detail-item">
-        <span class="label">Supply Zone</span>
-        <strong>{{ detail.latest_snapshot.nearest_supply_zone or detail.latest_snapshot.resistance_zone or '-' }}</strong>
-      </div>
-    </div>
-  </section>
-  {% endif %}
-
-  {% if detail.trade_plan and detail.trade_plan.reason_code and detail.trade_plan.reason_code[:3] == 'H4_' %}
-  <section class="panel">
-    <h3>H4 Promotion Gate</h3>
-    <p>Series ini tertahan di level H4, sehingga pressure valid tidak dipromosikan menjadi continuation setup.</p>
-    <p><strong>{{ detail.latest_snapshot.h4_structure or detail.trade_plan.h4_structure or '-' }}</strong> / <strong>{{ detail.trade_plan.reason_code }}</strong></p>
-  </section>
-  {% endif %}
-
   <section class="panel">
     <h3>Raw Block History</h3>
     {% if detail.blocks %}
@@ -210,7 +142,6 @@
             <th>Density State</th>
             <th>Duration (m)</th>
             <th>Status</th>
-            <th>Trade Plan</th>
           </tr>
         </thead>
         <tbody>
@@ -225,13 +156,6 @@
             <td>{{ block.density_state or 'UNKNOWN' }}</td>
             <td>{{ block.duration_minutes }}</td>
             <td>{{ block.pressure_status or block.finalize_mode or '-' }}</td>
-            <td>
-              {% if block.trade_plan_id %}
-              <a href="/signal-detail/{{ block.trade_plan_id }}">Plan {{ block.trade_plan_id }}</a>
-              {% else %}
-              -
-              {% endif %}
-            </td>
           </tr>
           {% endfor %}
         </tbody>

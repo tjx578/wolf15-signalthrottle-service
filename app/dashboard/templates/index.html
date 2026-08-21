@@ -18,23 +18,9 @@
 {% include "partials/radar_signals.html" %}
 {% include "partials/failed_signals.html" %}
 {% include "partials/watchlist_signals.html" %}
-{% if not phase1_mode %}
-{% include "partials/ready_trade_plans.html" %}
-{% include "partials/outcome_summary.html" %}
-{% include "partials/outcomes_by_phase.html" %}
-{% include "partials/outcomes_by_grade.html" %}
-{% include "partials/outcomes_by_h4_context.html" %}
-{% include "partials/outcomes_by_reason_code.html" %}
-{% include "partials/latest_outcomes.html" %}
-{% endif %}
-
-<section id="replay-logs" class="panel">
-  <h2>Replay Logs</h2>
-  <p style="color: var(--muted); font-size: 13px; margin: 0 0 12px 0;">Paste raw engine logs to test Phase 1 parsing, classification, and block detection. Logs are idempotent — replaying the same logs won't create duplicates.</p>
-  <form id="replay-form">
-    <textarea id="replay-logs" placeholder="[2026-04-28T16:00:00Z] [SignalThrottle] USDJPY THROTTLED — 3 signals in last 300s (max 3)&#10;[2026-04-28T16:00:15Z] [SignalThrottle] EURUSD THROTTLED — 5 signals in last 300s (max 5)&#10;...paste logs here..."></textarea>
-    <button type="submit" class="btn">Process Logs</button>
-  </form>
-  <div id="replay-result"></div>
+<section id="replay-capability" class="panel">
+  <h2>Replay</h2>
+  <p><strong>DISABLED_PENDING_DURABLE_ISOLATED_REPLAY_PR02</strong></p>
+  <p class="empty">Legacy replay is not registered or shipped in the production runtime.</p>
 </section>
 {% endblock %}

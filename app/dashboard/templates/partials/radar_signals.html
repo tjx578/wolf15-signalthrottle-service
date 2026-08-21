@@ -10,12 +10,12 @@
         <tr>
           <th>Symbol</th>
           <th>Pressure</th>
-          <th>H4</th>
+          <th>Coverage</th>
           <th>Reason</th>
           <th>Duration (m)</th>
           <th>Events</th>
           <th>Rationale</th>
-          <th>Bucket</th>
+          <th>Observation</th>
           <th>End WITA</th>
         </tr>
       </thead>
@@ -24,19 +24,19 @@
         <tr>
           <td class="symbol"><a href="/series-detail/{{ s.symbol }}">{{ s.symbol }}</a></td>
           <td><span class="badge">{{ s.pressure_grade }}</span></td>
-          <td>{{ s.h4_structure or '-' }}</td>
+          <td>{{ s.raw_coverage }}</td>
           <td>{{ s.reason_code or '-' }}</td>
           <td>{{ s.duration_minutes }}</td>
           <td>{{ s.event_count }}</td>
-          <td>{{ s.display_message or s.message or '-' }}</td>
-          <td>{{ s.dashboard_bucket or '-' }}</td>
-          <td>{{ s.signal_end_wita or '-' }}</td>
+          <td>{{ s.display_message or '-' }}</td>
+          <td>{{ s.observation_bucket or '-' }}</td>
+          <td>{{ s.end_wita or '-' }}</td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
   {% else %}
-  <p class="empty">No radar signals yet</p>
+  <p class="empty">No radar observations yet</p>
   {% endif %}
 </section>

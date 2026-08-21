@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timedelta, timezone
 
-import app.detector.finalizer as finalizer_module
 from app.detector.finalizer import SignalFinalizer, determine_finalize_mode
 
 
@@ -36,7 +35,7 @@ def test_determine_finalize_mode_states() -> None:
     assert determine_finalize_mode(now - timedelta(seconds=360), now) == "HARD_FINALIZED"
 
 
-def test_finalizer_marks_cooling(monkeypatch) -> None:
+def test_finalizer_marks_cooling() -> None:
     now = datetime(2026, 4, 27, 12, 0, 0, tzinfo=timezone.utc)
     repo = FakeSignalRepository(
         [
@@ -50,11 +49,6 @@ def test_finalizer_marks_cooling(monkeypatch) -> None:
     )
     finalizer = SignalFinalizer(repo=repo)
 
-    async def fake_enrich(block: dict, repo_arg) -> None:
-        return None
-
-    monkeypatch.setattr(finalizer_module, "enrich_block_with_market_context", fake_enrich)
-
     asyncio.run(finalizer.finalize_due_blocks(now_utc=now))
 
     assert repo.cooling_ids == [1]
@@ -62,7 +56,7 @@ def test_finalizer_marks_cooling(monkeypatch) -> None:
     assert repo.hard_ids == []
 
 
-def test_finalizer_soft_finalizes_and_enriches(monkeypatch) -> None:
+def test_finalizer_soft_finalizes_without_phase2_enrichment() -> None:
     now = datetime(2026, 4, 27, 12, 0, 0, tzinfo=timezone.utc)
     repo = FakeSignalRepository(
         [
@@ -76,21 +70,13 @@ def test_finalizer_soft_finalizes_and_enriches(monkeypatch) -> None:
         ]
     )
     finalizer = SignalFinalizer(repo=repo)
-    enriched_ids: list[int] = []
-
-    async def fake_enrich(block: dict, repo_arg) -> dict:
-        enriched_ids.append(block["id"])
-        return {"id": 99}
-
-    monkeypatch.setattr(finalizer_module, "enrich_block_with_market_context", fake_enrich)
-
     asyncio.run(finalizer.finalize_due_blocks(now_utc=now))
 
     assert repo.soft_ids == [2]
-    assert enriched_ids == [2]
+    assert repo.hard_ids == []
 
 
-def test_finalizer_hard_finalizes(monkeypatch) -> None:
+def test_finalizer_hard_finalizes() -> None:
     now = datetime(2026, 4, 27, 12, 0, 0, tzinfo=timezone.utc)
     repo = FakeSignalRepository(
         [
@@ -103,11 +89,6 @@ def test_finalizer_hard_finalizes(monkeypatch) -> None:
         ]
     )
     finalizer = SignalFinalizer(repo=repo)
-
-    async def fake_enrich(block: dict, repo_arg) -> None:
-        return None
-
-    monkeypatch.setattr(finalizer_module, "enrich_block_with_market_context", fake_enrich)
 
     asyncio.run(finalizer.finalize_due_blocks(now_utc=now))
 
