@@ -13,6 +13,14 @@ from app.storage.observer_schema import (
     OBSERVER_DURABLE_TABLES,
     OBSERVER_SCHEMA,
 )
+from app.storage.observer_reducer_schema import (
+    OBSERVER_REDUCER_JOB_COLUMNS,
+    OBSERVER_REDUCER_QUARANTINE_COLUMNS,
+    OBSERVER_REDUCER_RECOVERY_DOWN_SQL,
+    OBSERVER_REDUCER_RECOVERY_REVISION,
+    OBSERVER_REDUCER_RECOVERY_TABLES,
+    OBSERVER_REDUCER_RECOVERY_UP_SQL,
+)
 from app.storage.postgres import get_cursor
 
 logger = logging.getLogger(__name__)
@@ -54,6 +62,7 @@ async def run_migrations() -> list[dict]:
         _migration_012_ensure_pressure_series_reason_columns,
         _migration_013_ensure_phase1_raw_logs_and_block_fields,
         _migration_014_observer_durable_foundation,
+        _migration_015_observer_durable_reducer_recovery,
     ]
     results: list[dict] = []
     for m in migrations:
@@ -171,6 +180,76 @@ async def get_observer_schema_status() -> dict:
         "missing_tables": missing_tables,
         "status": (
             "ok" if revision_current and not missing_tables else "OBSERVER_SCHEMA_OUT_OF_SYNC"
+        ),
+    }
+
+
+async def get_observer_reducer_schema_status() -> dict:
+    async with get_cursor() as cur:
+        await cur.execute(
+            """
+            SELECT table_name
+            FROM information_schema.tables
+            WHERE table_schema = %s AND table_type = 'BASE TABLE'
+            """,
+            (OBSERVER_SCHEMA,),
+        )
+        tables = {row["table_name"] for row in await cur.fetchall()}
+        await cur.execute(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = %s AND table_name = 'reducer_jobs'
+            """,
+            (OBSERVER_SCHEMA,),
+        )
+        reducer_job_columns = {row["column_name"] for row in await cur.fetchall()}
+        await cur.execute(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = %s AND table_name = 'quarantine_events'
+            """,
+            (OBSERVER_SCHEMA,),
+        )
+        quarantine_columns = {row["column_name"] for row in await cur.fetchall()}
+        if "schema_revisions" in tables:
+            await cur.execute(
+                """
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM observer_plane.schema_revisions
+                    WHERE revision_id = %s
+                ) AS revision_current
+                """,
+                (OBSERVER_REDUCER_RECOVERY_REVISION,),
+            )
+            row = await cur.fetchone()
+            revision_current = bool(row and row.get("revision_current"))
+        else:
+            revision_current = False
+
+    missing_tables = sorted(OBSERVER_REDUCER_RECOVERY_TABLES - tables)
+    missing_columns = sorted(OBSERVER_REDUCER_JOB_COLUMNS - reducer_job_columns)
+    missing_quarantine_columns = sorted(
+        OBSERVER_REDUCER_QUARANTINE_COLUMNS - quarantine_columns
+    )
+    return {
+        "schema": OBSERVER_SCHEMA,
+        "expected_revision": OBSERVER_REDUCER_RECOVERY_REVISION,
+        "revision_current": revision_current,
+        "missing_tables": missing_tables,
+        "missing_columns": missing_columns,
+        "missing_quarantine_columns": missing_quarantine_columns,
+        "status": (
+            "ok"
+            if (
+                revision_current
+                and not missing_tables
+                and not missing_columns
+                and not missing_quarantine_columns
+            )
+            else "OBSERVER_REDUCER_SCHEMA_OUT_OF_SYNC"
         ),
     }
 
@@ -760,6 +839,26 @@ async def _migration_014_observer_durable_foundation() -> None:
     logger.info(
         "migration_014: observer durable foundation revision %s ensured",
         OBSERVER_DURABLE_FOUNDATION_REVISION,
+    )
+
+
+async def _migration_015_observer_durable_reducer_recovery() -> None:
+    """Add worker-safe leases, durable outputs, and rebuild generations."""
+    async with get_cursor() as cur:
+        await cur.execute(OBSERVER_REDUCER_RECOVERY_UP_SQL)
+    logger.info(
+        "migration_015: observer reducer recovery revision %s ensured",
+        OBSERVER_REDUCER_RECOVERY_REVISION,
+    )
+
+
+async def downgrade_observer_durable_reducer_recovery() -> None:
+    """Rollback hook for disposable-database verification only."""
+    async with get_cursor() as cur:
+        await cur.execute(OBSERVER_REDUCER_RECOVERY_DOWN_SQL)
+    logger.info(
+        "observer reducer recovery revision %s removed",
+        OBSERVER_REDUCER_RECOVERY_REVISION,
     )
 
 
