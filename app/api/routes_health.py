@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from app.config import settings
 from app.storage.migrations import (
     get_observer_schema_status,
+    get_observer_reducer_schema_status,
     get_pressure_blocks_schema_status,
 )
 from app.storage.postgres import get_cursor, get_pool_stats
@@ -71,12 +72,25 @@ async def _database_readiness() -> dict[str, Any]:
                 "revision_current": observer_schema.get("revision_current", False),
                 "missing_tables": observer_schema.get("missing_tables", []),
             }
+        reducer_schema = await get_observer_reducer_schema_status()
+        if reducer_schema.get("status") != "ok":
+            return {
+                "status": "FAIL",
+                "reason_code": "OBSERVER_REDUCER_SCHEMA_OUT_OF_SYNC",
+                "expected_revision": reducer_schema.get("expected_revision"),
+                "revision_current": reducer_schema.get("revision_current", False),
+                "missing_tables": reducer_schema.get("missing_tables", []),
+                "missing_columns": reducer_schema.get("missing_columns", []),
+                "missing_quarantine_columns": reducer_schema.get(
+                    "missing_quarantine_columns", []
+                ),
+            }
         return {
             "status": "PASS",
             "reason_code": "DATABASE_POOL_AND_SCHEMAS_READY",
             "pool": get_pool_stats(),
             "observer_schema": "AVAILABLE",
-            "migration_revision": observer_schema.get("expected_revision"),
+            "migration_revision": reducer_schema.get("expected_revision"),
             "migration_current": True,
         }
     except Exception as exc:

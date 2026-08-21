@@ -20,7 +20,10 @@ from app.contracts.observer_telemetry import (
 )
 from app.services.telemetry_intake import TelemetryIntakeService
 from app.storage.consumer_cursors import ConsumerCursorRepository
-from app.storage.migrations import _migration_014_observer_durable_foundation
+from app.storage.migrations import (
+    _migration_014_observer_durable_foundation,
+    _migration_015_observer_durable_reducer_recovery,
+)
 
 
 TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL")
@@ -73,6 +76,7 @@ async def _prepare_database(database_url: str) -> None:
         conn.execute("DROP SCHEMA IF EXISTS observer_plane CASCADE")
         conn.execute(Path("app/storage/schema.sql").read_text(encoding="utf-8"))
     await _migration_014_observer_durable_foundation()
+    await _migration_015_observer_durable_reducer_recovery()
 
 
 @pytest.mark.skipif(

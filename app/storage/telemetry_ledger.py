@@ -7,6 +7,7 @@ from psycopg.rows import DictRow
 from psycopg.types.json import Jsonb
 
 from app.contracts.observer_telemetry import ObserverTelemetryEvent
+from app.storage.postgres import get_connection
 
 
 class TelemetryLedgerRepository:
@@ -85,3 +86,30 @@ class TelemetryLedgerRepository:
                 Jsonb(event.payload),
             ),
         )
+
+    async def list_for_rebuild(
+        self,
+        *,
+        stream_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        async with get_connection() as conn:
+            cursor = await conn.execute(
+                """
+                SELECT
+                    event_id,
+                    stream_id,
+                    stream_sequence,
+                    event_type,
+                    payload_hash,
+                    payload
+                FROM observer_plane.telemetry_events
+                WHERE (%s::TEXT IS NULL OR stream_id = %s)
+                ORDER BY
+                    stream_id,
+                    stream_sequence NULLS LAST,
+                    occurred_at_utc,
+                    event_id
+                """,
+                (stream_id, stream_id),
+            )
+            return list(await cursor.fetchall())
