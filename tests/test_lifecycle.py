@@ -29,7 +29,6 @@ def test_lifespan_runs_migrations_after_schema_init_failure(monkeypatch) -> None
     monkeypatch.setattr(lifecycle, "run_migrations", _run_migrations)
     monkeypatch.setattr(lifecycle, "close_db", _noop)
     monkeypatch.setattr(lifecycle, "finalizer_loop", _noop_loop)
-    monkeypatch.setattr(lifecycle, "_OUTCOMES_AVAILABLE", False)
     monkeypatch.setattr(lifecycle.settings, "engine_log_sync_enabled", False)
 
     with TestClient(create_app()) as client:

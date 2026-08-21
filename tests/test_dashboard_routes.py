@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi.testclient import TestClient
+from fastapi.testclient import TestClient as RawTestClient
 
 import app.api.routes_dashboard as routes_dashboard
 import app.lifecycle as lifecycle
@@ -9,6 +9,13 @@ from app.main import create_app
 
 async def _noop() -> None:
     return None
+
+
+def TestClient(app):
+    return RawTestClient(
+        app,
+        headers={"Authorization": "Basic b3duZXI6c2VjcmV0"},
+    )
 
 
 class FakeSignalRepository:
@@ -155,6 +162,32 @@ class FakeSignalRepository:
             ],
         }
         return data.get(bucket, [])
+
+    async def get_latest_pressure_observations(
+        self, limit: int = 50, bucket: str = "all"
+    ) -> list[dict]:
+        source_bucket = "watchlist" if bucket == "priority" else bucket
+        rows = await self.get_latest_signals(limit=limit, bucket=source_bucket)
+        return [
+            {
+                "id": row["block_id"],
+                "block_id": row["block_id"],
+                "symbol": row["symbol"],
+                "pressure_grade": row.get("pressure_grade"),
+                "duration_minutes": row.get("duration_minutes"),
+                "event_count": row.get("event_count"),
+                "density_per_minute": row.get("density_per_minute"),
+                "max_gap_seconds": row.get("max_gap_seconds"),
+                "reason_code": row.get("reason_code"),
+                "display_message": row.get("display_message"),
+                "end_wita": row.get("signal_end_wita"),
+                "observation_bucket": bucket,
+                "source_authority": "LEGACY_DERIVED_LOG",
+                "raw_coverage": "RAW_COVERAGE_UNKNOWN",
+                "expected_pair_admission": "NOT_EVALUATED",
+            }
+            for row in rows[:limit]
+        ]
 
     async def get_trade_plan(self, signal_id: int) -> dict | None:
         return {
@@ -414,29 +447,26 @@ def test_dashboard_watchlist_renders_pending_pressure_without_trade_plan(monkeyp
     assert 'Dashboard</span>' in response.text
     assert 'Engine Logs</span>' in response.text
     assert 'Outcomes</span>' not in response.text
-    assert 'Debug</span>' in response.text
-    assert '/debug/sync' in response.text
-    assert '/debug/schema' in response.text
+    assert 'Debug</span>' not in response.text
+    assert '/debug/' not in response.text
     assert "Radar / Below Threshold" in response.text
     assert "Failed / Below Minimum" in response.text
-    assert "Priority / Contextual Signals" in response.text
+    assert "Priority Pressure Observations" in response.text
     assert "/engine-logs/daily" in response.text
     assert "Trade Plan Ready" not in response.text
     assert "GBPUSD" in response.text
     assert "NZDCHF" in response.text
     assert "FAILED_MIN_DURATION" in response.text
-    assert "watchlist_trade_plan_pending" in response.text
-    assert "PENDING" in response.text
-    assert "TRADE_PLAN_REQUIRED" in response.text
-    assert "H4_BEARISH_MASTER_STRUCTURE" in response.text
-    assert "BEARISH_CONTINUATION" in response.text
+    assert "priority" in response.text
+    assert "RAW_COVERAGE_UNKNOWN" in response.text
+    assert "NOT_EVALUATED" in response.text
+    assert "OBSERVATIONAL_ONLY" in response.text
     assert "GBPUSD B+ pressure is valid, but H4 bearish master structure blocks bullish continuation promotion." in response.text
     assert "AUDUSD" in response.text
-    assert "radar_below_threshold" in response.text
-    assert "Density State" in response.text
-    assert "HIGH_DENSITY" in response.text
-    assert "Chain Grade" in response.text
-    assert "Execution Mode" in response.text
+    assert "radar" in response.text
+    assert "Density State" not in response.text
+    assert "Chain Grade" not in response.text
+    assert "Execution Mode" not in response.text
     assert "INSTANT_EXECUTION_CANDIDATE" not in response.text
     assert "/series-detail/GBPUSD" in response.text
     assert "/series-detail/USDJPY" not in response.text
@@ -452,7 +482,7 @@ def test_dashboard_watchlist_renders_pending_pressure_without_trade_plan(monkeyp
     assert "Worst H4 Context" not in response.text
 
 
-def test_signal_detail_shows_rationale_summary(monkeypatch) -> None:
+def test_signal_detail_is_not_mounted(monkeypatch) -> None:
     monkeypatch.setattr(lifecycle, "init_db", _noop)
     monkeypatch.setattr(lifecycle, "run_migrations", _noop)
     monkeypatch.setattr(lifecycle, "close_db", _noop)
@@ -463,21 +493,7 @@ def test_signal_detail_shows_rationale_summary(monkeypatch) -> None:
 
     response = client.get("/signal-detail/9")
 
-    assert response.status_code == 200
-    assert "Rationale" in response.text
-    assert "GBPUSD B+ pressure with valid market structure. Trade plan shown as watchlist setup." in response.text
-    assert "H4 Structure" in response.text
-    assert "Density State" in response.text
-    assert "VERY_HIGH_DENSITY" in response.text
-    assert "B+ strong density / A- candidate, but duration below 10m" in response.text
-    assert "Chain Adjusted Grade" in response.text
-    assert "Chain Type" in response.text
-    assert "INSTANT_IF_CHART_TRIGGER_ACTIVE" in response.text
-    assert "H4 Promotion Gate" in response.text
-    assert "BEARISH_CONTINUATION" in response.text
-    assert "/series-detail/GBPUSD" in response.text
-    assert "Trade Plan JSON" not in response.text
-    assert 'hx-get="/partials/stats"' not in response.text
+    assert response.status_code == 404
 
 
 def test_series_detail_shows_merged_series_and_raw_blocks(monkeypatch) -> None:
@@ -503,14 +519,14 @@ def test_series_detail_shows_merged_series_and_raw_blocks(monkeypatch) -> None:
     assert "Throttle State Rows" in response.text
     assert "113" in response.text
     assert "Raw Block History" in response.text
-    assert "Latest Market Snapshot" in response.text
-    assert "H4 Promotion Gate" in response.text
-    assert "BEARISH_CONTINUATION" in response.text
+    assert "Latest Market Snapshot" not in response.text
+    assert "H4 Promotion Gate" not in response.text
+    assert "BEARISH_CONTINUATION" not in response.text
     assert "Best Valid Block Grade" in response.text
     assert "SPLIT_BY_CONTINUITY_GAP" in response.text
     assert "Series Gap Rule" in response.text
     assert "Continuity Block Rule" in response.text
-    assert "Plan 9" in response.text
+    assert "Plan 9" not in response.text
     assert "2026-04-27T07:15:23Z" in response.text
 
 
@@ -546,14 +562,16 @@ def test_dashboard_partial_section_renders_fragment(monkeypatch) -> None:
     response = client.get("/partials/watchlist_signals")
 
     assert response.status_code == 200
-    assert "Priority / Contextual Signals" in response.text
+    assert "Priority Pressure Observations" in response.text
     assert "GBPUSD" in response.text
+    assert "LEGACY_OBSERVATIONAL" in response.text
+    assert "LEGACY_DERIVED_LOG" not in response.text
     assert 'hx-get="/partials/watchlist_signals"' in response.text
     assert 'data-refresh-when-visible="true"' not in response.text
     assert "Replay Logs" not in response.text
 
 
-def test_dashboard_partial_section_surfaces_local_error(monkeypatch) -> None:
+def test_phase2_outcome_partial_is_not_mounted(monkeypatch) -> None:
     monkeypatch.setattr(lifecycle, "init_db", _noop)
     monkeypatch.setattr(lifecycle, "run_migrations", _noop)
     monkeypatch.setattr(lifecycle, "close_db", _noop)
@@ -564,12 +582,7 @@ def test_dashboard_partial_section_surfaces_local_error(monkeypatch) -> None:
 
     response = client.get("/partials/outcomes_by_phase")
 
-    assert response.status_code == 200
-    assert "Section degraded" in response.text
-    assert "signal_outcomes table missing" in response.text
-    assert "No outcome data yet" in response.text
-    assert 'hx-trigger="every 120s"' in response.text
-    assert 'data-refresh-when-visible="true"' in response.text
+    assert response.status_code == 404
 
 
 def test_engine_logs_daily_partial_renders_fragment(monkeypatch) -> None:
@@ -604,7 +617,7 @@ def test_dashboard_keeps_signals_when_outcome_queries_fail(monkeypatch) -> None:
     assert "Dashboard Degraded" not in response.text
     assert "signal_outcomes table missing" not in response.text
     assert "GBPUSD" in response.text
-    assert "watchlist_trade_plan_pending" in response.text
+    assert "Priority Pressure Observations" in response.text
     assert "No outcome data yet" not in response.text
     assert "No H4 context outcome data yet" not in response.text
     assert "No reason-code outcome data yet" not in response.text
@@ -620,7 +633,7 @@ def test_dashboard_requires_basic_auth_when_configured(monkeypatch) -> None:
     monkeypatch.setattr(routes_dashboard.settings, "dashboard_basic_auth_password", "secret")
 
     app = create_app()
-    client = TestClient(app)
+    client = RawTestClient(app)
 
     unauthorized = client.get("/")
     authorized = client.get("/", auth=("owner", "secret"))

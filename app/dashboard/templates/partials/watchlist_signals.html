@@ -1,5 +1,5 @@
 <section id="watchlist-signals" class="panel" hx-get="/partials/watchlist_signals" hx-trigger="every 30s" hx-swap="outerHTML">
-  <h2>{% if phase1_mode %}Priority / Contextual Signals{% else %}Watchlist / Trade Plan Pending{% endif %}</h2>
+  <h2>Priority Pressure Observations</h2>
   {% if section_error %}
   <p class="section-status"><strong>Section degraded:</strong> {{ section_error.message }}</p>
   {% endif %}
@@ -10,19 +10,14 @@
         <tr>
           <th>Symbol</th>
           <th>Pressure</th>
-          <th>Exec</th>
+          <th>Authority</th>
           <th>Density</th>
-          <th>Density State</th>
-          <th>Chain Grade</th>
-          <th>Execution Mode</th>
-          <th>H4</th>
-          <th>Phase</th>
-          <th>Action</th>
+          <th>Max Gap</th>
+          <th>Coverage</th>
+          <th>Expected Admission</th>
           <th>Reason</th>
           <th>Rationale</th>
-          <th>Plan Status</th>
-          <th>Bucket</th>
-          <th>Alert</th>
+          <th>Observation</th>
           <th>End WITA</th>
         </tr>
       </thead>
@@ -31,26 +26,21 @@
         <tr>
           <td class="symbol"><a href="/series-detail/{{ s.symbol }}">{{ s.symbol }}</a></td>
           <td><span class="badge">{{ s.pressure_grade }}</span></td>
-          <td><span class="badge">{{ s.execution_grade or 'PENDING' }}</span></td>
+          <td>{{ s.source_authority }}</td>
           <td>{{ s.density_per_minute or '-' }}</td>
-          <td>{{ s.density_state or 'UNKNOWN' }}</td>
-          <td>{{ s.chain_adjusted_grade or s.standalone_grade or '-' }}</td>
-          <td>{{ s.execution_mode or '-' }}</td>
-          <td>{{ s.h4_structure or '-' }}</td>
-          <td>{{ s.chart_phase or s.market_context_status or '-' }}</td>
-          <td>{{ s.action or s.trade_plan_status or 'TRADE_PLAN_REQUIRED' }}</td>
+          <td>{{ s.max_gap_seconds or '-' }}</td>
+          <td>{{ s.raw_coverage }}</td>
+          <td>{{ s.expected_pair_admission }}</td>
           <td>{{ s.reason_code or '-' }}</td>
-          <td>{{ s.display_message or s.message or '-' }}</td>
-          <td>{{ s.trade_plan_status or '-' }}</td>
-          <td>{{ s.dashboard_bucket or '-' }}</td>
-          <td>{{ s.owner_alert or 'PENDING' }}</td>
-          <td>{{ s.signal_end_wita or '-' }}</td>
+          <td>{{ s.display_message or '-' }}</td>
+          <td>{{ s.observation_bucket or '-' }}</td>
+          <td>{{ s.end_wita or '-' }}</td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
   {% else %}
-  <p class="empty">{% if phase1_mode %}No priority/contextual signals in this window{% else %}No watchlist signals pending trade plan{% endif %}</p>
+  <p class="empty">No priority pressure observations in this window</p>
   {% endif %}
 </section>

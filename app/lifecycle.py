@@ -17,14 +17,6 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-try:
-    from app.outcomes.outcome_worker import OutcomeWorker
-    _OUTCOMES_AVAILABLE = True
-except Exception:
-    OutcomeWorker = None  # type: ignore[assignment]
-    _OUTCOMES_AVAILABLE = False
-    logger.exception("Outcome worker disabled during startup")
-
 
 async def finalizer_loop(stop_event: asyncio.Event) -> None:
     finalizer = SignalFinalizer()
@@ -37,25 +29,6 @@ async def finalizer_loop(stop_event: asyncio.Event) -> None:
 
         try:
             await asyncio.wait_for(stop_event.wait(), timeout=10)
-        except TimeoutError:
-            continue
-
-
-async def outcome_loop(stop_event: asyncio.Event) -> None:
-    if OutcomeWorker is None:
-        logger.warning("Outcome loop skipped because OutcomeWorker is unavailable")
-        return
-
-    worker = OutcomeWorker()
-
-    while not stop_event.is_set():
-        try:
-            await worker.process_due_outcomes()
-        except Exception as exc:
-            logger.exception("Outcome loop failed: %s", exc)
-
-        try:
-            await asyncio.wait_for(stop_event.wait(), timeout=60)
         except TimeoutError:
             continue
 
@@ -87,11 +60,11 @@ async def engine_log_sync_loop(stop_event: asyncio.Event) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    settings.assert_observe_only_runtime()
     setup_logging()
-    logger.info("Starting wolf15-signalthrottle-service")
+    logger.info("Starting wolf15-signalthrottle-service in PHASE1_OBSERVE_ONLY")
     stop_event = asyncio.Event()
     finalizer_task: asyncio.Task[None] | None = None
-    outcome_task: asyncio.Task[None] | None = None
     engine_log_sync_task: asyncio.Task[None] | None = None
 
     try:
@@ -117,15 +90,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.warning("DB init skipped (will retry on first request): %s", exc)
 
     finalizer_task = asyncio.create_task(finalizer_loop(stop_event))
-    if settings.enable_trade_plans and _OUTCOMES_AVAILABLE and OutcomeWorker is not None:
-        outcome_task = asyncio.create_task(outcome_loop(stop_event))
     if settings.engine_log_sync_enabled:
         engine_log_sync_task = asyncio.create_task(engine_log_sync_loop(stop_event))
 
     yield
 
     stop_event.set()
-    for task in (finalizer_task, outcome_task, engine_log_sync_task):
+    for task in (finalizer_task, engine_log_sync_task):
         if task is not None:
             task.cancel()
             with suppress(asyncio.CancelledError):

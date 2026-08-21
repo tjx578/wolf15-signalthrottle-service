@@ -11,7 +11,10 @@ from fastapi.templating import Jinja2Templates
 
 from .auth import require_dashboard_auth
 from ..config import settings
-from ..dashboard.view_models import build_active_block_view, build_trade_signal_view
+from ..dashboard.view_models import (
+    build_active_block_view,
+    build_pressure_observation_view,
+)
 from ..ingestion.engine_log_sync import utc_day_bounds
 from ..storage.repositories import SignalRepository
 
@@ -23,8 +26,8 @@ DashboardLoader = Callable[[SignalRepository], Awaitable[Any]]
 DashboardTransform = Callable[[Any], Any]
 
 
-def _trade_signal_views(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [build_trade_signal_view(row) for row in rows]
+def _pressure_observation_views(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [build_pressure_observation_view(row) for row in rows]
 
 
 SECTION_SPECS: dict[str, dict[str, Any]] = {
@@ -47,77 +50,31 @@ SECTION_SPECS: dict[str, dict[str, Any]] = {
         "transform": lambda rows: [build_active_block_view(row) for row in rows],
     },
     "radar_signals": {
-        "loader": lambda repo: repo.get_latest_signals(limit=12, bucket="radar"),
+        "loader": lambda repo: repo.get_latest_pressure_observations(
+            limit=12, bucket="radar"
+        ),
         "fallback": [],
         "context_key": "radar_signals",
         "template": "partials/radar_signals.html",
-        "transform": _trade_signal_views,
+        "transform": _pressure_observation_views,
     },
     "failed_signals": {
-        "loader": lambda repo: repo.get_latest_signals(limit=12, bucket="failed"),
+        "loader": lambda repo: repo.get_latest_pressure_observations(
+            limit=12, bucket="failed"
+        ),
         "fallback": [],
         "context_key": "failed_signals",
         "template": "partials/failed_signals.html",
-        "transform": _trade_signal_views,
+        "transform": _pressure_observation_views,
     },
     "watchlist_signals": {
-        "loader": lambda repo: repo.get_latest_signals(limit=12, bucket="watchlist"),
+        "loader": lambda repo: repo.get_latest_pressure_observations(
+            limit=12, bucket="priority"
+        ),
         "fallback": [],
         "context_key": "watchlist_signals",
         "template": "partials/watchlist_signals.html",
-        "transform": _trade_signal_views,
-    },
-    "ready_trade_plans": {
-        "loader": lambda repo: repo.get_latest_signals(limit=12, bucket="ready"),
-        "fallback": [],
-        "context_key": "ready_trade_plans",
-        "template": "partials/ready_trade_plans.html",
-        "transform": _trade_signal_views,
-    },
-    "outcome_summary": {
-        "loader": lambda repo: repo.get_outcome_summary(),
-        "fallback": {
-            "total": 0,
-            "strong_pct": 0,
-            "avg_mfe_30m": 0,
-            "avg_mae_30m": 0,
-            "best_phase": None,
-            "worst_phase": None,
-            "best_h4_context_type": None,
-            "worst_h4_context_type": None,
-        },
-        "context_key": "outcome_summary",
-        "template": "partials/outcome_summary.html",
-    },
-    "outcomes_by_phase": {
-        "loader": lambda repo: repo.get_outcomes_by_phase(),
-        "fallback": [],
-        "context_key": "outcomes_by_phase",
-        "template": "partials/outcomes_by_phase.html",
-    },
-    "outcomes_by_grade": {
-        "loader": lambda repo: repo.get_outcomes_by_grade(),
-        "fallback": [],
-        "context_key": "outcomes_by_grade",
-        "template": "partials/outcomes_by_grade.html",
-    },
-    "outcomes_by_h4_context": {
-        "loader": lambda repo: repo.get_outcomes_by_h4_context_type(),
-        "fallback": [],
-        "context_key": "outcomes_by_h4_context",
-        "template": "partials/outcomes_by_h4_context.html",
-    },
-    "outcomes_by_reason_code": {
-        "loader": lambda repo: repo.get_outcomes_by_reason_code(),
-        "fallback": [],
-        "context_key": "outcomes_by_reason_code",
-        "template": "partials/outcomes_by_reason_code.html",
-    },
-    "latest_outcomes": {
-        "loader": lambda repo: repo.get_latest_outcomes(limit=12),
-        "fallback": [],
-        "context_key": "latest_outcomes",
-        "template": "partials/latest_outcomes.html",
+        "transform": _pressure_observation_views,
     },
 }
 
@@ -127,38 +84,15 @@ HOME_SECTION_ORDER = [
     "radar_signals",
     "failed_signals",
     "watchlist_signals",
-    "ready_trade_plans",
-    "outcome_summary",
-    "outcomes_by_phase",
-    "outcomes_by_grade",
-    "outcomes_by_h4_context",
-    "outcomes_by_reason_code",
-    "latest_outcomes",
 ]
-
-PHASE2_DASHBOARD_SECTIONS = {
-    "ready_trade_plans",
-    "outcome_summary",
-    "outcomes_by_phase",
-    "outcomes_by_grade",
-    "outcomes_by_h4_context",
-    "outcomes_by_reason_code",
-    "latest_outcomes",
-}
 
 
 def _phase1_mode() -> bool:
-    return settings.signalthrottle_mode.lower() == "phase1"
+    return settings.phase1_observe_only
 
 
 def _home_section_order() -> list[str]:
-    if not _phase1_mode():
-        return HOME_SECTION_ORDER
-    return [
-        section_name
-        for section_name in HOME_SECTION_ORDER
-        if section_name not in PHASE2_DASHBOARD_SECTIONS
-    ]
+    return HOME_SECTION_ORDER
 
 
 async def _load_section(loader, fallback, section_name: str, section_errors: list[dict[str, str]]):
@@ -214,6 +148,10 @@ async def _load_dashboard_home_context(repo: SignalRepository) -> dict[str, Any]
 
     context["section_errors"] = section_errors
     context["phase1_mode"] = _phase1_mode()
+    context["deployment_environment"] = settings.deployment_environment.upper()
+    context["observer_mode"] = settings.observer_mode.upper()
+    context["observer_authority"] = settings.observer_authority.upper()
+    context["containment_profile"] = "PHASE1_OBSERVE_ONLY"
     return context
 
 
@@ -257,21 +195,6 @@ async def dashboard_section_partial(request: Request, section_name: str):
     repo = SignalRepository()
     template_name, context = await _load_dashboard_fragment_context(repo, section_name)
     return templates.TemplateResponse(request, template_name, context)
-
-
-@router.get("/signal-detail/{signal_id}", response_class=HTMLResponse)
-async def signal_detail_page(request: Request, signal_id: int):
-    repo = SignalRepository()
-    signal = await repo.get_trade_plan(signal_id)
-
-    return templates.TemplateResponse(
-        request,
-        "signal_detail.html",
-        {
-            "signal": build_trade_signal_view(signal),
-            "phase1_mode": _phase1_mode(),
-        },
-    )
 
 
 @router.get("/series-detail/{symbol}", response_class=HTMLResponse)

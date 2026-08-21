@@ -1,0 +1,40 @@
+.git
+.github
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+tests
+docs
+
+# BEGIN production_forbidden_artifacts
+# This marked block is the canonical production denylist. Docker consumes it
+# directly and scripts/check_production_artifacts.py audits the same entries.
+.env
+.env.*
+scripts
+app/market
+app/outcomes
+app/planner
+app/api/routes_debug.py
+app/api/routes_market.py
+app/api/routes_outcomes.py
+app/api/routes_replay.py
+app/models/market_snapshot.py
+app/models/trade_plan.py
+app/scoring/execution_grader.py
+app/scoring/final_score.py
+app/dashboard/templates/signal_detail.html
+app/dashboard/templates/partials/ready_trade_plans.html
+app/dashboard/templates/partials/outcome_summary.html
+app/dashboard/templates/partials/outcomes_by_grade.html
+app/dashboard/templates/partials/outcomes_by_h4_context.html
+app/dashboard/templates/partials/outcomes_by_phase.html
+app/dashboard/templates/partials/outcomes_by_reason_code.html
+app/dashboard/templates/partials/latest_outcomes.html
+app/**/risk_reservation*
+app/**/final_signal*
+app/**/execution_command*
+app/**/broker_export*
+app/**/ea_export*
+# END production_forbidden_artifacts

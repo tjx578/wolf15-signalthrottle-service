@@ -36,7 +36,7 @@ class MarketContextWriteRepository(MarketContextRepository, Protocol):
         ...
 
 
-class FinalizerRepository(MarketContextWriteRepository, Protocol):
+class FinalizerRepository(Protocol):
     async def get_active_or_cooling_blocks(self) -> list[dict[str, Any]]:
         ...
 

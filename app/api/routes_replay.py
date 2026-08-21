@@ -1,11 +1,17 @@
+"""LEGACY_UNSAFE_REPLAY — NOT_FOR_PRODUCTION.
+
+Superseded by the PR-02 durable isolated replay design. This module is not
+imported by the production application and is excluded from its Docker image.
+"""
+
 from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 
-from .auth import require_dashboard_auth
+from .auth import require_owner_operator
 from ..config import settings
 from ..detector.sequence_builder import (
     build_canonical_sequences,
@@ -15,7 +21,6 @@ from ..ingestion.engine_log_sync import parse_engine_log_entries
 from ..models.log_event import LogEvent
 from ..parser.signalthrottle_parser import parse_signalthrottle
 from ..parser.timestamp_mapper import to_chart_time, to_wita
-from ..planner.market_context import enrich_block_with_market_context
 from ..scoring.pressure_grader import grade_pressure
 from ..scoring.pressure_metrics import calculate_pressure_metrics
 from ..scoring.phase1_classification import pressure_temperature, theme_cluster
@@ -31,13 +36,30 @@ class ReplayPayload(BaseModel):
 @router.post("/logs")
 async def replay_logs(
     payload: ReplayPayload,
-    _: None = Depends(require_dashboard_auth),
+    actor: str = Depends(require_owner_operator),
+    x_owner_request_id: str | None = Header(default=None),
+    x_owner_reason: str | None = Header(default=None),
+    x_owner_csrf: str | None = Header(default=None),
 ):
-    """Parse raw log text, detect blocks, compute grades, store results.
+    """Parse legacy raw log text and store observational reconstructions.
     
     Replay is idempotent: same block_hash never creates duplicate blocks.
     Relaying same logs N times yields identical results.
     """
+    if x_owner_csrf != "1":
+        raise HTTPException(status_code=403, detail="owner CSRF guard required")
+    if not x_owner_request_id or not x_owner_reason:
+        raise HTTPException(
+            status_code=400,
+            detail="X-Owner-Request-ID and X-Owner-Reason are required",
+        )
+    logger.info(
+        "Owner replay requested actor=%s request_id=%s reason=%s",
+        actor,
+        x_owner_request_id,
+        x_owner_reason,
+    )
+
     if not payload.logs or not payload.logs.strip():
         return {
             "status": "error",
@@ -122,7 +144,6 @@ async def replay_logs(
         block_results = []
         blocks_created = 0
         blocks_updated = 0
-        trade_plan_count = 0
         wave_counts: dict[str, int] = {}
 
         for index, seq_events in enumerate(continuity_blocks):
@@ -181,43 +202,6 @@ async def replay_logs(
                 else:
                     blocks_updated += 1
 
-                block = {
-                    "id": block_data["id"],
-                    "symbol": symbol,
-                    "start_utc": start,
-                    "end_utc": end,
-                    "start_wita": to_wita(start),
-                    "end_wita": to_wita(end),
-                    "chart_start_time": to_chart_time(
-                        start, settings.chart_time_offset_hours
-                    ),
-                    "chart_end_time": to_chart_time(
-                        end, settings.chart_time_offset_hours
-                    ),
-                    "duration_minutes": metrics["duration_minutes"],
-                    "event_count": metrics["event_count"],
-                    "density_per_minute": metrics["density_per_minute"],
-                    "avg_gap_seconds": metrics["avg_gap_seconds"],
-                    "max_gap_seconds": metrics["max_gap_seconds"],
-                    "pressure_grade": grade,
-                    "pressure_status": "REPLAY",
-                    "block_relation": None,
-                    "finalize_mode": "REPLAY_FINALIZE",
-                    "block_mode": "SAME_PAIR_SEQUENCE",
-                    "pressure_temperature": pressure_temperature(metrics["density_per_minute"]),
-                    "wave_count": wave_counts[symbol],
-                    "interrupted_by": interrupted_by,
-                    "theme_cluster": theme_cluster(symbol),
-                }
-
-                trade_plan = (
-                    await enrich_block_with_market_context(block, repo)
-                    if settings.enable_trade_plans
-                    else None
-                )
-                if trade_plan:
-                    trade_plan_count += 1
-
                 block_results.append(
                     {
                         "symbol": symbol,
@@ -234,7 +218,9 @@ async def replay_logs(
                         "wave_count": wave_counts[symbol],
                         "interrupted_by": interrupted_by,
                         "theme_cluster": theme_cluster(symbol),
-                        "trade_plan_created": trade_plan is not None,
+                        "consumer_authority": "OBSERVATIONAL_ONLY",
+                        "valid_for_execution": False,
+                        "execution_command_allowed": False,
                     }
                 )
             except Exception as e:
@@ -247,10 +233,13 @@ async def replay_logs(
             "events_parsed": len(events),
             "events_stored": stored,
             "duplicates_skipped": duplicates,
-            "canonical_blocks_detected": len(block_results),
+            "observational_blocks_detected": len(block_results),
             "blocks_created": blocks_created,
             "blocks_updated": blocks_updated,
-            "trade_plans_created": trade_plan_count,
+            "deployment_environment": settings.deployment_environment.upper(),
+            "observer_mode": settings.observer_mode.upper(),
+            "observer_authority": settings.observer_authority.upper(),
+            "containment_profile": "PHASE1_OBSERVE_ONLY",
             "blocks": block_results,
         }
 

@@ -1,4 +1,8 @@
-"""Test /replay/logs endpoint with sample USDJPY B+ pressure logs."""
+"""LEGACY_UNSAFE_REPLAY — NOT_FOR_PRODUCTION.
+
+Historical endpoint probe retained only as PR-02 research input. The current
+production app does not register ``/replay/logs`` and excludes ``scripts/``.
+"""
 import asyncio
 import httpx
 from datetime import datetime
