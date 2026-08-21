@@ -21,6 +21,13 @@ from app.storage.observer_reducer_schema import (
     OBSERVER_REDUCER_RECOVERY_TABLES,
     OBSERVER_REDUCER_RECOVERY_UP_SQL,
 )
+from app.storage.owner_read_model_schema import (
+    OWNER_GENERATION_COLUMNS,
+    OWNER_READ_MODEL_DOWN_SQL,
+    OWNER_READ_MODEL_REVISION,
+    OWNER_READ_MODEL_TABLES,
+    OWNER_READ_MODEL_UP_SQL,
+)
 from app.storage.postgres import get_cursor
 
 logger = logging.getLogger(__name__)
@@ -63,6 +70,7 @@ async def run_migrations() -> list[dict]:
         _migration_013_ensure_phase1_raw_logs_and_block_fields,
         _migration_014_observer_durable_foundation,
         _migration_015_observer_durable_reducer_recovery,
+        _migration_016_owner_snapshot_read_models,
     ]
     results: list[dict] = []
     for m in migrations:
@@ -250,6 +258,58 @@ async def get_observer_reducer_schema_status() -> dict:
                 and not missing_quarantine_columns
             )
             else "OBSERVER_REDUCER_SCHEMA_OUT_OF_SYNC"
+        ),
+    }
+
+
+async def get_owner_read_model_schema_status() -> dict:
+    async with get_cursor() as cur:
+        await cur.execute(
+            """
+            SELECT table_name
+            FROM information_schema.tables
+            WHERE table_schema = %s AND table_type = 'BASE TABLE'
+            """,
+            (OBSERVER_SCHEMA,),
+        )
+        tables = {row["table_name"] for row in await cur.fetchall()}
+        await cur.execute(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = %s AND table_name = 'read_model_generations'
+            """,
+            (OBSERVER_SCHEMA,),
+        )
+        generation_columns = {row["column_name"] for row in await cur.fetchall()}
+        if "schema_revisions" in tables:
+            await cur.execute(
+                """
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM observer_plane.schema_revisions
+                    WHERE revision_id = %s
+                ) AS revision_current
+                """,
+                (OWNER_READ_MODEL_REVISION,),
+            )
+            row = await cur.fetchone()
+            revision_current = bool(row and row.get("revision_current"))
+        else:
+            revision_current = False
+
+    missing_tables = sorted(OWNER_READ_MODEL_TABLES - tables)
+    missing_columns = sorted(OWNER_GENERATION_COLUMNS - generation_columns)
+    return {
+        "schema": OBSERVER_SCHEMA,
+        "expected_revision": OWNER_READ_MODEL_REVISION,
+        "revision_current": revision_current,
+        "missing_tables": missing_tables,
+        "missing_columns": missing_columns,
+        "status": (
+            "ok"
+            if revision_current and not missing_tables and not missing_columns
+            else "OWNER_READ_MODEL_SCHEMA_OUT_OF_SYNC"
         ),
     }
 
@@ -849,6 +909,26 @@ async def _migration_015_observer_durable_reducer_recovery() -> None:
     logger.info(
         "migration_015: observer reducer recovery revision %s ensured",
         OBSERVER_REDUCER_RECOVERY_REVISION,
+    )
+
+
+async def _migration_016_owner_snapshot_read_models() -> None:
+    """Add versioned owner artifacts and atomic active-generation semantics."""
+    async with get_cursor() as cur:
+        await cur.execute(OWNER_READ_MODEL_UP_SQL)
+    logger.info(
+        "migration_016: owner read-model revision %s ensured",
+        OWNER_READ_MODEL_REVISION,
+    )
+
+
+async def downgrade_owner_snapshot_read_models() -> None:
+    """Rollback hook for disposable-database verification only."""
+    async with get_cursor() as cur:
+        await cur.execute(OWNER_READ_MODEL_DOWN_SQL)
+    logger.info(
+        "owner read-model revision %s removed",
+        OWNER_READ_MODEL_REVISION,
     )
 
 
