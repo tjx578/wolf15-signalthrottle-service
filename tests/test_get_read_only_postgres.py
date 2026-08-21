@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 from pathlib import Path
 
@@ -10,6 +11,9 @@ from psycopg import sql
 
 from app.config import settings
 from app.main import create_app
+from app.services.owner_read_models import OwnerReadModelRebuildService
+from app.storage.migrations import run_migrations
+from app.storage.postgres import close_db
 
 
 TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL")
@@ -59,6 +63,14 @@ def test_owner_get_routes_and_replay_attempt_leave_postgres_state_unchanged(monk
     _bootstrap_schema(TEST_DATABASE_URL)
     monkeypatch.setattr(settings, "database_url", TEST_DATABASE_URL)
 
+    async def prepare_active_owner_generation() -> None:
+        results = await run_migrations()
+        assert all(result["status"] == "ok" for result in results), results
+        await OwnerReadModelRebuildService().rebuild(promote=True)
+        await close_db()
+
+    asyncio.run(prepare_active_owner_generation())
+
     paths = (
         "/",
         "/partials/stats",
@@ -75,6 +87,10 @@ def test_owner_get_routes_and_replay_attempt_leave_postgres_state_unchanged(monk
         "/signals/engine-logs/daily?date=2026-05-01",
         "/blocks/active",
         "/blocks/history",
+        "/api/v1/owner/snapshot",
+        "/api/v1/owner/stream-health",
+        "/api/v1/owner/pairs",
+        "/api/v1/owner/incidents",
         "/health/live",
         "/health/ready",
     )
@@ -82,13 +98,19 @@ def test_owner_get_routes_and_replay_attempt_leave_postgres_state_unchanged(monk
         create_app(),
         headers={"Authorization": "Basic b3duZXI6c2VjcmV0"},
     ) as client:
-        before = _schema_checksum(TEST_DATABASE_URL, settings.db_schema)
+        before = (
+            _schema_checksum(TEST_DATABASE_URL, settings.db_schema),
+            _schema_checksum(TEST_DATABASE_URL, "observer_plane"),
+        )
         responses = [client.get(path) for path in paths]
         replay_attempt = client.post(
             "/replay/logs",
             json={"logs": "must not reach legacy replay"},
         )
-        after = _schema_checksum(TEST_DATABASE_URL, settings.db_schema)
+        after = (
+            _schema_checksum(TEST_DATABASE_URL, settings.db_schema),
+            _schema_checksum(TEST_DATABASE_URL, "observer_plane"),
+        )
     assert all(response.status_code == 200 for response in responses), [
         (path, response.status_code, response.text[:200])
         for path, response in zip(paths, responses, strict=True)

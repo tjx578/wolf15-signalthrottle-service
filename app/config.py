@@ -7,6 +7,7 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     app_env: str = "production"
     service_name: str = "wolf15-signalthrottle-service"
+    observer_commit_sha: str | None = None
 
     database_url: str = ""
     db_schema: str = "signalthrottle"
